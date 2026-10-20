@@ -27,10 +27,5 @@ jobs:
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: alcmute-windows
-          path: |
-            target/release/alcmute.exe
-            LICENSE
-            THIRD_PARTY_NOTICES.md
-            vendor/i-slint-backend-winit/LICENSES/
-            vendor/winit/LICENSE
+          path: target/release/alcmute.exe
           if-no-files-found: error
