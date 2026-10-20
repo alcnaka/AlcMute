@@ -1,0 +1,20 @@
+[package]
+name = "alcmute-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[features]
+windows-integration = ["dep:windows-sys", "dep:ureq", "dep:serde_json", "dep:winreg"]
+
+[dependencies]
+rosc = "0.11"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+global-hotkey = "0.9"
+serde_json = { version = "1", optional = true }
+ureq = { version = "3", default-features = false, features = ["json"], optional = true }
+winreg = { version = "0.55", optional = true }
+windows-sys = { version = "0.59", optional = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+

@@ -1,0 +1,36 @@
+name: Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test
+        run: cargo test --workspace --locked -- --test-threads=1
+      - name: Build
+        run: cargo build --release --locked
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: alcmute-windows
+          path: |
+            target/release/alcmute.exe
+            LICENSE
+            THIRD_PARTY_NOTICES.md
+            vendor/i-slint-backend-winit/LICENSES/
+            vendor/winit/LICENSE
+          if-no-files-found: error

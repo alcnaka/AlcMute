@@ -1,0 +1,28 @@
+[package]
+name = "alcmute"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+license = "MIT"
+description = "AlcMute (あるみゅーと) — VRC Background Mute"
+readme = "README.md"
+publish = false
+
+[workspace]
+members = ["crates/alcmute-core"]
+exclude = ["vendor/i-slint-backend-winit", "vendor/winit"]
+resolver = "2"
+
+[dependencies]
+alcmute-core = { path = "crates/alcmute-core", features = ["windows-integration"] }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-software", "system-tray", "unstable-winit-030"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[patch.crates-io]
+i-slint-backend-winit = { path = "vendor/i-slint-backend-winit" }
+winit = { path = "vendor/winit" }
