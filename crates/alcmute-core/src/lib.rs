@@ -135,13 +135,21 @@ pub struct Options {
     pub data_dir: PathBuf,
     pub benchmark: bool,
 }
-impl Options {
-    pub fn from_args() -> Result<Self> {
-        let mut options = Self {
+impl Default for Options {
+    fn default() -> Self {
+        Self {
             data_dir: migration::default_directory(),
             benchmark: false,
-        };
-        let mut args = std::env::args().skip(1);
+        }
+    }
+}
+impl Options {
+    pub fn from_args() -> Result<Self> {
+        Self::parse_args(std::env::args().skip(1))
+    }
+    fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Self> {
+        let mut options = Self::default();
+        let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--test-mode" => options.benchmark = true,
@@ -170,8 +178,13 @@ impl Options {
         }));
     }
     pub fn log(&self, error: &str) {
-        let _ = fs::create_dir_all(&self.data_dir);
-        let _ = fs::write(self.data_dir.join("error.log"), error);
+        let _ = self.write_log(error);
+    }
+    pub fn write_log(&self, error: &str) -> Result<PathBuf> {
+        fs::create_dir_all(&self.data_dir).map_err(|e| e.to_string())?;
+        let path = self.data_dir.join("error.log");
+        fs::write(&path, error).map_err(|e| e.to_string())?;
+        Ok(path)
     }
 }
 
@@ -402,8 +415,8 @@ impl Controller {
         let path = options.data_dir.join("settings.toml");
         #[allow(unused_mut)]
         let mut config: Config = if path.exists() {
-            toml::from_str(&fs::read_to_string(path).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?
+            toml::from_str(&fs::read_to_string(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?)
+                .map_err(|e| format!("Invalid settings in {}: {e}. 設定ファイルを修正するか、バックアップしてから名前を変更してください。", path.display()))?
         } else {
             Config::default()
         };
@@ -743,6 +756,29 @@ impl Drop for Controller {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn invalid_arguments_and_corrupt_settings_fail_without_overwriting_data() {
+        assert!(Options::parse_args(["--data-dir".into()]).is_err());
+        assert!(Options::parse_args(["--unknown".into()]).is_err());
+        let dir = std::env::temp_dir().join(format!("alcmute-corrupt-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.toml");
+        let bad = "shortcut = [corrupt TOML";
+        fs::write(&path, bad).unwrap();
+        let options = Options {
+            data_dir: dir.clone(),
+            benchmark: true,
+        };
+        let result = Controller::new(options.clone(), Arc::new(|_| {}));
+        assert!(result.err().unwrap().contains("Invalid settings"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), bad);
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(&dir).unwrap();
+        fs::write(&dir, "not a directory").unwrap();
+        assert!(options.write_log("test").is_err());
+        options.log("test"); // best-effort logging must not panic
+        fs::remove_file(dir).unwrap();
+    }
     fn free_address() -> String {
         UdpSocket::bind("127.0.0.1:0")
             .unwrap()

@@ -40,6 +40,92 @@ impl Drop for Handle {
         }
     }
 }
+
+/// Local namespace isolates sessions; the token SID isolates users in a session.
+pub struct SingleInstance {
+    _handle: Handle,
+}
+
+impl SingleInstance {
+    pub fn acquire() -> Result<Option<Self>> {
+        Self::named(&format!("Local\\Alcnaka.AlcMute.{}", current_user_id()?))
+    }
+    fn named(name: &str) -> Result<Option<Self>> {
+        use windows_sys::Win32::{
+            Foundation::{GetLastError, ERROR_ALREADY_EXISTS},
+            System::Threading::CreateMutexW,
+        };
+        let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let exists = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+        let guard = Self {
+            _handle: Handle(handle),
+        };
+        if exists {
+            Ok(None)
+        } else {
+            Ok(Some(guard))
+        }
+    }
+}
+
+fn current_user_id() -> Result<String> {
+    use windows_sys::Win32::{
+        Security::{GetLengthSid, GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER},
+        System::Threading::{GetCurrentProcess, OpenProcessToken},
+    };
+    let mut token = std::ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let token = Handle(token);
+    let mut size = 0;
+    unsafe {
+        GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut size);
+    }
+    if size == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    // usize storage supplies the alignment required by TOKEN_USER.
+    let mut buffer = vec![0usize; (size as usize).div_ceil(std::mem::size_of::<usize>())];
+    if unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            buffer.as_mut_ptr().cast(),
+            size,
+            &mut size,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+    let bytes = unsafe {
+        std::slice::from_raw_parts(
+            user.User.Sid.cast::<u8>(),
+            GetLengthSid(user.User.Sid) as usize,
+        )
+    };
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+pub fn show_error(title: &str, message: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let title: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
+    let message: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
 fn vrchat_pids() -> Result<Vec<u32>> {
     // The snapshot and PROCESSENTRY32W are owned and sized for this API.
     unsafe {
@@ -412,6 +498,15 @@ pub fn set_startup(options: &Options, enabled: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn instance_mutex_blocks_duplicates_and_releases_on_drop() {
+        let sid = current_user_id().unwrap();
+        let name = format!("Local\\Alcnaka.AlcMute.Tests.{sid}.{}", std::process::id());
+        let first = SingleInstance::named(&name).unwrap().unwrap();
+        assert!(SingleInstance::named(&name).unwrap().is_none());
+        drop(first);
+        assert!(SingleInstance::named(&name).unwrap().is_some());
+    }
     #[test]
     fn query_requires_a_single_boolean_on_the_right_node() {
         assert_eq!(

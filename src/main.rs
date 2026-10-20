@@ -237,14 +237,44 @@ slint::slint! {
         }
     }
 }
-fn main() {
-    let options = Options::from_args().expect("command-line options");
+fn main() -> std::process::ExitCode {
+    let options = match Options::from_args() {
+        Ok(options) => options,
+        Err(error) => {
+            report_startup_error(&Options::default(), &error);
+            return std::process::ExitCode::FAILURE;
+        }
+    };
     options.install_panic_log();
+    let _instance = match alcmute_core::windows::SingleInstance::acquire() {
+        Ok(Some(instance)) => instance,
+        Ok(None) => {
+            alcmute_core::windows::show_error(
+                "AlcMuteは起動済みです",
+                "通知領域のAlcMuteアイコンから設定画面を開いてください。",
+            );
+            return std::process::ExitCode::SUCCESS;
+        }
+        Err(error) => {
+            report_startup_error(&options, &error);
+            return std::process::ExitCode::FAILURE;
+        }
+    };
     if let Err(error) = run(options.clone()) {
-        options.log(&error);
-        eprintln!("{error}");
-        std::process::exit(1);
+        report_startup_error(&options, &error);
+        return std::process::ExitCode::FAILURE;
     }
+    std::process::ExitCode::SUCCESS
+}
+fn report_startup_error(options: &Options, error: &str) {
+    let log = match options.write_log(error) {
+        Ok(path) => format!("ログ：{}", path.display()),
+        Err(reason) => format!(
+            "ログを保存できませんでした：{reason}\n保存先：{}",
+            options.data_dir.join("error.log").display()
+        ),
+    };
+    alcmute_core::windows::show_error("AlcMuteの起動に失敗しました", &format!("{error}\n\n{log}\n\n設定ファイル・OSC受信ポート・ショートカットを確認して、再起動してください。"));
 }
 fn run(options: Options) -> Result<(), String> {
     let tray = Tray::new().map_err(|e| e.to_string())?;
