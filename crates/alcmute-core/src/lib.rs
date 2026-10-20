@@ -1,4 +1,5 @@
 use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
+mod migration;
 mod shortcut;
 use rosc::{OscMessage, OscPacket, OscType};
 use serde::{Deserialize, Serialize};
@@ -135,10 +136,7 @@ pub struct Options {
 impl Options {
     pub fn from_args() -> Result<Self> {
         let mut options = Self {
-            data_dir: std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .unwrap_or_else(std::env::temp_dir)
-                .join("VRChatMuteController"),
+            data_dir: migration::default_directory(),
             benchmark: false,
         };
         let mut args = std::env::args().skip(1);
@@ -151,6 +149,10 @@ impl Options {
                 }
                 _ => return Err(format!("Unknown argument: {arg}")),
             }
+        }
+        // Old sign-in commands explicitly pass the former default directory.
+        if !options.benchmark && options.data_dir == migration::legacy_directory() {
+            options.data_dir = migration::default_directory();
         }
         Ok(options)
     }
@@ -378,6 +380,10 @@ pub struct Controller {
 }
 impl Controller {
     pub fn new(options: Options, notify: Notify) -> Result<Self> {
+        let migrate = !options.benchmark && options.data_dir == migration::default_directory();
+        if migrate {
+            migration::settings(&migration::legacy_directory(), &options.data_dir)?;
+        }
         fs::create_dir_all(&options.data_dir).map_err(|e| e.to_string())?;
         let path = options.data_dir.join("settings.toml");
         #[allow(unused_mut)]
@@ -387,11 +393,14 @@ impl Controller {
         } else {
             Config::default()
         };
+        config.validate()?;
         #[cfg(feature = "windows-integration")]
         {
+            if migrate {
+                windows::migrate_startup(&options)?;
+            }
             config.autostart = windows::startup_enabled(&options)?;
         }
-        config.validate()?;
         let manager = GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
         let hotkey: HotKey = config.shortcut.parse().map_err(|e| format!("{e}"))?;
         manager

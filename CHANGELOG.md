@@ -14,6 +14,11 @@ AlcMuteの利用者に関わる主な変更を、このファイルに記録し�
 - 依存ライブラリのライセンス情報を実行ファイルに埋め込み、アプリ内で表示。
 - この変更履歴と、READMEからのリンクを追加。
 
+### Changed（変更）
+
+- 設定の既定保存先を`%LOCALAPPDATA%\VRChatMuteController`から`%LOCALAPPDATA%\Alcnaka\AlcMute`に変更。旧設定は初回起動時に引き継ぎ、旧ファイルはバックアップとして保持。新しい設定を優先し、全初期化後の再取り込みを防止。
+- Windows自動起動の登録名を`VRChatMuteController`から`AlcMute`に変更。旧名のエントリがある場合は新名へ移行してから削除。旧版の自動起動に含まれる旧既定保存先の指定も、新保存先へ切り替え。
+
 ### Fixed（修正）
 
 - AlcMuteのMITライセンスの著作権者表記を`Copyright (c) 2026 Alcnaka`に変更。

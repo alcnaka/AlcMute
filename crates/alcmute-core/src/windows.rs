@@ -28,7 +28,7 @@ use windows_sys::Win32::{
     },
 };
 use winreg::{
-    enums::{HKEY_CURRENT_USER, KEY_READ},
+    enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE},
     RegKey,
 };
 
@@ -287,12 +287,39 @@ pub(crate) fn spawn_monitor(
 // Test mode uses a non-startup key, never the user's real sign-in registration.
 fn startup_path(options: &Options) -> &'static str {
     if options.benchmark {
-        r"Software\VRChatMuteController\Testing\Run"
+        r"Software\AlcMute\Testing\Run"
     } else {
         r"Software\Microsoft\Windows\CurrentVersion\Run"
     }
 }
-const STARTUP_NAME: &str = "VRChatMuteController";
+const STARTUP_NAME: &str = "AlcMute";
+const LEGACY_STARTUP_NAME: &str = "VRChatMuteController";
+
+pub fn migrate_startup(options: &Options) -> Result<()> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = match hkcu.open_subkey_with_flags(startup_path(options), KEY_READ | KEY_WRITE) {
+        Ok(key) => key,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("Cannot migrate sign-in startup setting: {error}")),
+    };
+    match key.get_value::<String, _>(LEGACY_STARTUP_NAME) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    }
+    let previous = startup_snapshot(options)?;
+    if previous.is_none() {
+        key.set_value(STARTUP_NAME, &expected_command(options)?)
+            .map_err(|e| e.to_string())?;
+    }
+    if let Err(error) = key.delete_value(LEGACY_STARTUP_NAME) {
+        restore_startup(options, previous.as_deref())?;
+        return Err(format!(
+            "Cannot remove legacy sign-in startup setting: {error}"
+        ));
+    }
+    Ok(())
+}
 pub fn startup_snapshot(options: &Options) -> Result<Option<String>> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = match hkcu.open_subkey_with_flags(startup_path(options), KEY_READ) {
@@ -454,6 +481,27 @@ mod tests {
             benchmark: true,
         };
         let previous = startup_snapshot(&options).unwrap();
+        let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
+            .create_subkey(startup_path(&options))
+            .unwrap();
+        assert_eq!(STARTUP_NAME, "AlcMute");
+        key.set_value(LEGACY_STARTUP_NAME, &"old application command")
+            .unwrap();
+        restore_startup(&options, None).unwrap();
+        migrate_startup(&options).unwrap();
+        assert!(startup_enabled(&options).unwrap());
+        assert!(key.get_value::<String, _>(LEGACY_STARTUP_NAME).is_err());
+        // Existing new registration wins over an old one, even across retries.
+        key.set_value(STARTUP_NAME, &"existing new command")
+            .unwrap();
+        key.set_value(LEGACY_STARTUP_NAME, &"old application command")
+            .unwrap();
+        migrate_startup(&options).unwrap();
+        migrate_startup(&options).unwrap();
+        assert_eq!(
+            startup_snapshot(&options).unwrap().as_deref(),
+            Some("existing new command")
+        );
         set_startup(&options, true).unwrap();
         assert!(startup_enabled(&options).unwrap());
         std::fs::create_dir(&options.data_dir).unwrap();
