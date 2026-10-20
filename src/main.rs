@@ -292,7 +292,7 @@ fn run(options: Options) -> Result<(), String> {
                             ui.set_save_ok(result.is_ok());
                             ui.set_message(match result {
                                 Ok(()) => "保存しました".into(),
-                                Err(error) => error.into(),
+                                Err(error) => error.to_string().into(),
                             });
                         }
                     }

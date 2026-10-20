@@ -1,5 +1,7 @@
 use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
+mod apply_error;
 mod migration;
+pub use apply_error::{ApplyError, ApplyErrorKind};
 mod shortcut;
 use rosc::{OscMessage, OscPacket, OscType};
 use serde::{Deserialize, Serialize};
@@ -377,6 +379,18 @@ pub struct Controller {
     runtime: Option<Runtime>,
     status: Arc<Mutex<Status>>,
     notify: Notify,
+    orphan_hotkeys: Vec<HotKey>,
+    #[cfg(test)]
+    faults: ApplyFaults,
+}
+#[cfg(test)]
+#[derive(Default)]
+struct ApplyFaults {
+    register: std::cell::Cell<bool>,
+    register_recovery: std::cell::Cell<bool>,
+    unregister: std::cell::Cell<bool>,
+    runtime: std::cell::Cell<bool>,
+    runtime_recovery: std::cell::Cell<bool>,
 }
 impl Controller {
     pub fn new(options: Options, notify: Notify) -> Result<Self> {
@@ -418,6 +432,9 @@ impl Controller {
             runtime: Some(runtime),
             status,
             notify,
+            orphan_hotkeys: Vec::new(),
+            #[cfg(test)]
+            faults: ApplyFaults::default(),
         })
     }
     pub fn status(&self) -> Status {
@@ -428,95 +445,180 @@ impl Controller {
             let _ = runtime.tx.send(Command::Toggle);
         }
     }
-    pub fn apply(&mut self, config: Config) -> Result<()> {
+    pub fn apply(&mut self, config: Config) -> std::result::Result<(), ApplyError> {
         config.validate()?;
         let hotkey: HotKey = config.shortcut.parse().map_err(|e| format!("{e}"))?;
         let changed = hotkey != self.hotkey;
         let needs_registration = changed || !self.hotkey_registered;
-        if needs_registration {
-            self.manager
-                .register(hotkey)
-                .map_err(|e| format!("Shortcut is unavailable: {e}"))?;
-        }
-        // Prepare the file before disrupting the existing listener.
+        let network_changed = config.target != self.config.target
+            || config.listen != self.config.listen
+            || self.runtime.is_none();
         let temp = self.options.data_dir.join("settings.pending.toml");
         let serialized = toml::to_string_pretty(&config).map_err(|e| e.to_string())?;
-        if let Err(e) = fs::write(&temp, serialized) {
-            if needs_registration {
-                let _ = self.manager.unregister(hotkey);
-            }
-            return Err(e.to_string());
+        if let Err(error) = fs::write(&temp, serialized) {
+            let mut failure = ApplyError::from(format!("Cannot prepare settings: {error}"));
+            cleanup_pending(&temp, &mut failure);
+            return Err(failure);
         }
-        self.runtime.take();
-        let candidate = runtime(
-            &config,
-            self.status.clone(),
-            self.notify.clone(),
-            &self.options,
-        );
-        let candidate = match candidate {
-            Ok(value) => value,
-            Err(error) => {
-                if needs_registration {
-                    let _ = self.manager.unregister(hotkey);
+        let mut registered = false;
+        let mut retired_old = false;
+        let mut stopped_old = false;
+        let mut candidate = None;
+        let candidate_status = Arc::new(Mutex::new(Status::default()));
+        let result = (|| -> std::result::Result<(), ApplyError> {
+            // Retry cleanup after a previous unregister failure; never lose track
+            // of a native registration which still exists.
+            while let Some(key) = self.orphan_hotkeys.last().copied() {
+                self.manager.unregister(key)?;
+                self.orphan_hotkeys.pop();
+            }
+            if needs_registration {
+                self.register_shortcut(hotkey, false)?;
+                registered = true;
+            }
+            if network_changed {
+                if self.runtime.is_some() && config.listen == self.config.listen {
+                    self.runtime.take();
+                    stopped_old = true;
                 }
-                self.runtime = runtime(
-                    &self.config,
-                    self.status.clone(),
-                    self.notify.clone(),
-                    &self.options,
-                )
-                .ok();
-                if let Some(old) = &self.runtime {
+                candidate = Some(self.create_runtime(&config, candidate_status.clone(), false)?);
+            }
+            if changed && self.hotkey_registered {
+                self.unregister_shortcut(self.hotkey)?;
+                self.hotkey_registered = false;
+                retired_old = true;
+            }
+            commit_settings(&self.options, &config, &temp)?;
+            Ok(())
+        })();
+        if let Err(mut error) = result {
+            drop(candidate);
+            let mut failures = Vec::new();
+            if retired_old {
+                match self.register_shortcut(self.hotkey, true) {
+                    Ok(()) => self.hotkey_registered = true,
+                    Err(e) => failures.push(format!("Shortcut recovery failed: {e}")),
+                }
+            }
+            if registered {
+                if let Err(e) = self.manager.unregister(hotkey) {
+                    self.orphan_hotkeys.push(hotkey);
+                    failures.push(format!("New shortcut cleanup failed: {e}"));
+                }
+            }
+            if stopped_old {
+                match self.create_runtime(&self.config.clone(), self.status.clone(), true) {
+                    Ok(value) => self.runtime = Some(value),
+                    Err(e) => failures.push(format!("OSC runtime recovery failed: {e}")),
+                }
+            }
+            if !failures.is_empty() {
+                error.kind = ApplyErrorKind::RecoveryFailed;
+                error
+                    .message
+                    .push_str(&format!("; {}", failures.join("; ")));
+            }
+            if self.runtime.is_none() {
+                error.kind = ApplyErrorKind::RecoveryFailed;
+                let mut state = self.status.lock().unwrap();
+                state.muted = None;
+                state.connection = Connection::Unavailable;
+                state.detail =
+                    "OSC通信が停止しています。設定を再保存するか再起動してください".into();
+            }
+            if !self.hotkey_registered {
+                error.kind = ApplyErrorKind::RecoveryFailed;
+                self.status.lock().unwrap().detail =
+                    "ショートカットが停止しています。設定を再保存するか再起動してください".into();
+            }
+            if error.kind == ApplyErrorKind::RecoveryFailed {
+                #[cfg(feature = "windows-integration")]
+                match windows::startup_enabled(&self.options) {
+                    Ok(enabled) => self.config.autostart = enabled,
+                    Err(e) => error
+                        .message
+                        .push_str(&format!("; Startup state could not be read: {e}")),
+                }
+            }
+            cleanup_pending(&temp, &mut error);
+            if let Some(old) = &self.runtime {
+                if self.hotkey_registered {
                     install_handler(old, self.hotkey);
                 }
-                return Err(format!("{error}; previous settings retained"));
+                let _ = old.tx.send(Command::Refresh);
+            } else if let Some(route) = HOTKEY_ROUTE.get() {
+                route.lock().unwrap().take();
             }
-        };
-        let commit = commit_settings(&self.options, &config, &temp);
-        if let Err(e) = commit {
-            drop(candidate);
-            if needs_registration {
-                let _ = self.manager.unregister(hotkey);
+            if error.kind == ApplyErrorKind::Rejected
+                && self.runtime.is_some()
+                && self.hotkey_registered
+            {
+                error.message.push_str("; 従来の設定で動作しています");
             }
-            self.runtime = runtime(
-                &self.config,
-                self.status.clone(),
-                self.notify.clone(),
-                &self.options,
-            )
-            .ok();
-            if let Some(old) = &self.runtime {
-                install_handler(old, self.hotkey);
-            }
-            return Err(format!("Cannot save settings: {e}"));
+            return Err(error);
         }
-        if changed && self.hotkey_registered {
-            let _ = self.manager.unregister(self.hotkey);
+        if let Some(candidate) = candidate {
+            self.runtime = Some(candidate);
+            self.status = candidate_status;
         }
-        install_handler(&candidate, hotkey);
-        self.runtime = Some(candidate);
         self.config = config;
         self.hotkey = hotkey;
         self.hotkey_registered = true;
-        let _ = fs::remove_file(&temp);
-        *self.status.lock().unwrap() = Status::default();
-        // NWG NoticeSender uses SendNotifyMessageW, which is synchronous on the
-        // UI thread. Always notify from a worker to avoid re-entering apply().
         if let Some(runtime) = &self.runtime {
+            install_handler(runtime, hotkey);
             let _ = runtime.tx.send(Command::Refresh);
+        }
+        if let Err(error) = fs::remove_file(&temp) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                self.options.log(&format!(
+                    "Settings saved, but pending file cleanup failed: {error}"
+                ));
+            }
         }
         Ok(())
     }
+    fn register_shortcut(&self, key: HotKey, _recovery: bool) -> Result<()> {
+        #[cfg(test)]
+        if self.faults.register.get() || (_recovery && self.faults.register_recovery.get()) {
+            return Err("Injected shortcut registration failure".into());
+        }
+        self.manager
+            .register(key)
+            .map_err(|e| format!("Shortcut registration failed: {e}"))
+    }
+    fn unregister_shortcut(&self, key: HotKey) -> Result<()> {
+        #[cfg(test)]
+        if self.faults.unregister.get() {
+            return Err("Injected shortcut removal failure".into());
+        }
+        self.manager
+            .unregister(key)
+            .map_err(|e| format!("Shortcut removal failed: {e}"))
+    }
+    fn create_runtime(
+        &self,
+        config: &Config,
+        status: Arc<Mutex<Status>>,
+        _recovery: bool,
+    ) -> Result<Runtime> {
+        #[cfg(test)]
+        if (_recovery && self.faults.runtime_recovery.get())
+            || (!_recovery && self.faults.runtime.get())
+        {
+            return Err("Injected OSC runtime failure".into());
+        }
+        runtime(config, status, self.notify.clone(), &self.options)
+    }
     pub fn reset_to_defaults(&mut self) -> Result<()> {
-        self.apply(Config::default())
+        self.apply(Config::default()).map_err(|e| e.to_string())
     }
     pub fn begin_shortcut_capture(&mut self) -> Result<()> {
         self.manager.begin_capture()?;
         if self.hotkey_registered {
-            self.manager
-                .unregister(self.hotkey)
-                .map_err(|e| e.to_string())?;
+            if let Err(error) = self.manager.unregister(self.hotkey) {
+                self.manager.end_capture();
+                return Err(error);
+            }
             self.hotkey_registered = false;
         }
         if let Some(route) = HOTKEY_ROUTE.get() {
@@ -538,11 +640,49 @@ impl Controller {
         Ok(())
     }
 }
-fn commit_settings(options: &Options, config: &Config, temp: &std::path::Path) -> Result<()> {
+fn cleanup_pending(path: &std::path::Path, error: &mut ApplyError) {
+    if let Err(cleanup) = fs::remove_file(path) {
+        if cleanup.kind() != std::io::ErrorKind::NotFound {
+            error
+                .message
+                .push_str(&format!("; Pending file cleanup failed: {cleanup}"));
+        }
+    }
+}
+
+fn commit_settings(
+    options: &Options,
+    config: &Config,
+    temp: &std::path::Path,
+) -> std::result::Result<(), ApplyError> {
     #[cfg(feature = "windows-integration")]
     let previous = windows::startup_snapshot(options)?;
-    #[cfg(feature = "windows-integration")]
-    windows::set_startup(options, config.autostart)?;
+    commit_settings_with(
+        options,
+        config,
+        temp,
+        || {
+            #[cfg(feature = "windows-integration")]
+            windows::set_startup(options, config.autostart)?;
+            Ok(())
+        },
+        || {
+            #[cfg(feature = "windows-integration")]
+            windows::restore_startup(options, previous.as_deref())?;
+            Ok(())
+        },
+    )
+}
+
+fn commit_settings_with(
+    options: &Options,
+    config: &Config,
+    temp: &std::path::Path,
+    update_startup: impl FnOnce() -> Result<()>,
+    restore_startup: impl FnOnce() -> Result<()>,
+) -> std::result::Result<(), ApplyError> {
+    update_startup()
+        .map_err(|e| ApplyError::from(format!("Cannot update sign-in startup: {e}")))?;
     let path = options.data_dir.join("settings.toml");
     let result = if config == &Config::default() {
         match fs::remove_file(&path) {
@@ -553,10 +693,12 @@ fn commit_settings(options: &Options, config: &Config, temp: &std::path::Path) -
         fs::rename(temp, path)
     };
     if let Err(error) = result {
-        #[cfg(feature = "windows-integration")]
-        windows::restore_startup(options, previous.as_deref())
-            .map_err(|rollback| format!("{error}; startup rollback failed: {rollback}"))?;
-        return Err(error.to_string());
+        if let Err(rollback) = restore_startup() {
+            return Err(ApplyError::recovery(format!(
+                "Cannot save settings: {error}; startup rollback failed: {rollback}"
+            )));
+        }
+        return Err(format!("Cannot save settings: {error}").into());
     }
     let _ = fs::remove_file(temp);
     Ok(())
@@ -585,6 +727,11 @@ impl Drop for Controller {
         if self.hotkey_registered {
             let _ = self.manager.unregister(self.hotkey);
         }
+        for key in &self.orphan_hotkeys {
+            if let Err(error) = self.manager.unregister(*key) {
+                self.options.log(&error);
+            }
+        }
         // Clear the captured command sender before joining the workers.
         if let Some(route) = HOTKEY_ROUTE.get() {
             route.lock().unwrap().take();
@@ -596,6 +743,140 @@ impl Drop for Controller {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn free_address() -> String {
+        UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn apply_preserves_runtime_and_recovers_from_network_storage_and_hotkey_failures() {
+        let dir = std::env::temp_dir().join(format!("alcmute-apply-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let config = Config {
+            listen: free_address(),
+            target: free_address(),
+            shortcut: "Ctrl+Alt+Shift+F23".into(),
+            ..Default::default()
+        };
+        let settings = dir.join("settings.toml");
+        fs::write(&settings, toml::to_string(&config).unwrap()).unwrap();
+        let options = Options {
+            data_dir: dir.clone(),
+            benchmark: true,
+        };
+        let mut core = Controller::new(options, Arc::new(|_| {})).unwrap();
+        let id = core.runtime.as_ref().unwrap().threads[0].thread().id();
+        core.status.lock().unwrap().muted = Some(true);
+        let mut update = core.config.clone();
+        update.tray_double_click_settings = true;
+        update.show_settings_on_startup = false;
+        core.apply(update.clone()).unwrap();
+        core.apply(update.clone()).unwrap(); // unchanged apply keeps the runtime
+        update.shortcut = "Ctrl+Alt+Shift+F22".into();
+        core.apply(update.clone()).unwrap();
+        assert_eq!(core.runtime.as_ref().unwrap().threads[0].thread().id(), id);
+        assert_eq!(core.status().muted, Some(true));
+
+        let blocked = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut network = update.clone();
+        network.listen = blocked.local_addr().unwrap().to_string();
+        let error = core.apply(network).unwrap_err();
+        assert_eq!(error.kind, ApplyErrorKind::Rejected);
+        assert_eq!(core.config, update);
+        assert_eq!(core.runtime.as_ref().unwrap().threads[0].thread().id(), id);
+        assert_eq!(core.status().muted, Some(true));
+        assert!(!dir.join("settings.pending.toml").exists());
+
+        let mut shortcut = update.clone();
+        shortcut.shortcut = "Ctrl+Alt+Shift+F21".into();
+        core.faults.register.set(true);
+        assert!(core.apply(shortcut.clone()).is_err());
+        core.faults.register.set(false);
+        core.faults.unregister.set(true);
+        assert!(core.apply(shortcut.clone()).is_err());
+        core.faults.unregister.set(false);
+        assert_eq!(core.config, update);
+        assert!(core.hotkey_registered);
+        assert!(!dir.join("settings.pending.toml").exists());
+
+        fs::remove_file(&settings).unwrap();
+        fs::create_dir(&settings).unwrap(); // deterministic rename failure
+        assert!(core.apply(shortcut.clone()).is_err());
+        assert!(core.hotkey_registered);
+        assert_eq!(core.config, update);
+        assert_eq!(core.runtime.as_ref().unwrap().threads[0].thread().id(), id);
+        core.faults.register_recovery.set(true);
+        let error = core.apply(shortcut).unwrap_err();
+        assert_eq!(error.kind, ApplyErrorKind::RecoveryFailed);
+        assert!(!core.hotkey_registered);
+        core.faults.register_recovery.set(false);
+        fs::remove_dir(&settings).unwrap();
+        core.apply(update.clone()).unwrap();
+        assert!(core.hotkey_registered);
+
+        let mut same_port = update.clone();
+        same_port.target = free_address();
+        core.faults.runtime.set(true);
+        let error = core.apply(same_port.clone()).unwrap_err();
+        assert_eq!(error.kind, ApplyErrorKind::Rejected);
+        assert!(core.runtime.is_some());
+        core.faults.runtime_recovery.set(true);
+        let error = core.apply(same_port).unwrap_err();
+        assert_eq!(error.kind, ApplyErrorKind::RecoveryFailed);
+        assert!(core.runtime.is_none());
+        assert_eq!(core.status().muted, None);
+        core.faults.runtime.set(false);
+        core.faults.runtime_recovery.set(false);
+        core.apply(update).unwrap();
+        assert!(core.runtime.is_some());
+        assert!(!dir.join("settings.pending.toml").exists());
+        drop(core);
+        fs::remove_file(settings).unwrap();
+        fs::remove_file(dir.join("toggle-count.txt")).ok();
+        fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn persistence_reports_registry_update_and_rollback_failures() {
+        let root = std::env::temp_dir().join(format!("alcmute-persist-{}", std::process::id()));
+        fs::create_dir_all(root.join("settings.toml")).unwrap();
+        let options = Options {
+            data_dir: root.clone(),
+            benchmark: true,
+        };
+        let temp = root.join("settings.pending.toml");
+        fs::write(&temp, "").unwrap();
+        let called = std::cell::Cell::new(false);
+        let error = commit_settings_with(
+            &options,
+            &Config::default(),
+            &temp,
+            || Err("Injected registry write failure".into()),
+            || {
+                called.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.kind, ApplyErrorKind::Rejected);
+        assert!(!called.get());
+        let error = commit_settings_with(
+            &options,
+            &Config::default(),
+            &temp,
+            || Ok(()),
+            || Err("Injected registry recovery failure".into()),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind, ApplyErrorKind::RecoveryFailed);
+        assert!(error.to_string().contains("startup rollback failed"));
+        fs::remove_file(temp).unwrap();
+        fs::remove_dir(root.join("settings.toml")).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
     #[test]
     fn queued_voice_pulses_keep_a_release_interval() {
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
