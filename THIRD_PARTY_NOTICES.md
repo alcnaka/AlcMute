@@ -16,6 +16,11 @@ Local changes to the vendored sources are described in `vendor/README.md`.
 The README includes the official Made with Slint attribution badge. Preserve
 this attribution on the public project/download page when distributing under
 Slint's royalty-free application license; consult the bundled license text.
+
+The local SVG attribution logos in `assets/img/` are provided by the Slint
+project under CC BY-ND 4.0; their source and license links are recorded in
+`assets/img/README.md`. They are separate from AlcMute's MIT-licensed code.
+
 The application embeds the collected dependency notices and license texts in
 `assets/dependency-licenses.txt`. Open "AlcMuteについて" from the tray menu to
 read them without external license files. Regenerate this asset with
