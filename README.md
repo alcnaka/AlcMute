@@ -96,6 +96,8 @@ PoCのNWG版、計測結果、実行ログ、個人の設定ファイルは含�
 ポータブル版をダウンロードできます。ZIPを展開し、`alcmute.exe`を起動してください。
 インストーラーは今後対応予定です。
 
+変更内容は[変更履歴（CHANGELOG.md）](CHANGELOG.md)を参照してください。
+
 ## ライセンス
 
 AlcMuteの独自コードは[MIT License](LICENSE)です。
