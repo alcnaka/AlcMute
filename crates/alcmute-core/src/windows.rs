@@ -126,6 +126,10 @@ pub fn show_error(title: &str, message: &str) {
         );
     }
 }
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")
+)]
 fn vrchat_pids() -> Result<Vec<u32>> {
     // The snapshot and PROCESSENTRY32W are owned and sized for this API.
     unsafe {
@@ -154,6 +158,10 @@ fn vrchat_pids() -> Result<Vec<u32>> {
         Ok(pids)
     }
 }
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")
+)]
 fn tcp_ports(pids: &[u32]) -> Result<Vec<(u32, u16)>> {
     let mut size = 0u32;
     unsafe {
@@ -211,6 +219,10 @@ fn tcp_ports(pids: &[u32]) -> Result<Vec<(u32, u16)>> {
     }
     Err("TCP endpoints changed during discovery".into())
 }
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")
+)]
 fn get(agent: &ureq::Agent, port: u16, path: &str) -> Result<Value> {
     agent
         .get(format!("http://127.0.0.1:{port}{path}"))
@@ -235,12 +247,20 @@ pub fn query_mute(value: &Value) -> Result<bool> {
         .as_bool()
         .ok_or("MuteSelf is not a boolean".into())
 }
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")
+)]
 struct Endpoint {
     port: u16,
     pid: u32,
     process: Option<Handle>,
 }
 impl Endpoint {
+    #[cfg_attr(
+        test,
+        expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")
+    )]
     fn exited(&self) -> bool {
         match &self.process {
             Some(handle) => unsafe { WaitForSingleObject(handle.0, 0) == WAIT_OBJECT_0 },
@@ -248,6 +268,10 @@ impl Endpoint {
         }
     }
 }
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")
+)]
 fn discover(agent: &ureq::Agent, target_port: u16) -> Result<(bool, Option<Endpoint>)> {
     let pids = vrchat_pids()?;
     if pids.is_empty() {
@@ -298,6 +322,10 @@ fn publish(
     drop(state);
     notify(Event::Status);
 }
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")
+)]
 pub(crate) fn spawn_monitor(
     config: Config,
     status: Arc<Mutex<Status>>,
@@ -495,6 +523,98 @@ pub fn set_startup(options: &Options, enabled: bool) -> Result<()> {
     }
     restore_startup(options, command.as_deref())
 }
+pub fn queued_keyboard_keys() -> Result<Vec<u16>> {
+    let mut keys = [0u8; 256];
+    if unsafe {
+        windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyboardState(keys.as_mut_ptr())
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok((8u16..=254)
+        .filter(|key| keys[*key as usize] & 0x80 != 0)
+        .collect())
+}
+pub fn any_keyboard_key_down() -> bool {
+    (8..=254).any(|key| unsafe {
+        windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(key) < 0
+    })
+}
+
+/// Physical key state, independent of winit's buffered keyboard message queue.
+pub fn pressed_keyboard_keys() -> Vec<u16> {
+    // 0xF0..0xFE are Japanese IME mode keys, not held physical keys. Some
+    // layouts report these continuously, preventing any release wait finishing.
+    (8u16..=0xE2)
+        .filter(|key| unsafe {
+            windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(*key as i32) < 0
+        })
+        .collect()
+}
+
+pub fn recorded_keyboard_keys() -> Option<Vec<u16>> {
+    crate::shortcut::take_capture_keys()
+}
+
+pub fn foreground_key_event(name: &str, down: bool) {
+    crate::shortcut::foreground_key_event(name, down);
+}
+pub fn foreground_focus_gained() {
+    crate::shortcut::foreground_focus_gained();
+}
+pub fn foreground_is_ours() -> bool {
+    unsafe {
+        let window = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
+        let mut pid = 0;
+        windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(window, &mut pid);
+        pid == std::process::id()
+    }
+}
+
+pub fn double_click_time() -> u32 {
+    unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() }
+}
+
+/// The settings window owns this modal; No/Escape leaves the tool running.
+pub fn confirm_tool_exit() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_YESNO,
+    };
+    if !foreground_is_ours() {
+        return false;
+    }
+    let title: Vec<u16> = "ツールを終了\0".encode_utf16().collect();
+    let message: Vec<u16> = "AlcMuteを終了しますか？\n\n終了すると、ショートカットやトレイからのミュート操作は利用できなくなります。\n未保存の設定変更は保存されません。\0".encode_utf16().collect();
+    unsafe {
+        MessageBoxW(
+            GetForegroundWindow(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
+        ) == IDYES
+    }
+}
+
+/// A modal, owned confirmation. No/Escape is the default and changes nothing.
+pub fn confirm_settings_reset() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_YESNO,
+    };
+    if !foreground_is_ours() {
+        return false;
+    }
+    let title: Vec<u16> = "すべての設定を初期化\0".encode_utf16().collect();
+    let message: Vec<u16> = "保存した設定を削除し、すべての項目を初期値に戻します。\nWindowsサインイン時の自動起動も無効になります。\n\n初期化しますか？\0".encode_utf16().collect();
+    unsafe {
+        MessageBoxW(
+            GetForegroundWindow(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+        ) == IDYES
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,97 +739,5 @@ mod tests {
         assert!(!startup_enabled(&options).unwrap());
         restore_startup(&options, previous.as_deref()).unwrap();
         std::fs::remove_dir(&options.data_dir).unwrap();
-    }
-}
-
-pub fn queued_keyboard_keys() -> Result<Vec<u16>> {
-    let mut keys = [0u8; 256];
-    if unsafe {
-        windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyboardState(keys.as_mut_ptr())
-    } == 0
-    {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
-    Ok((8u16..=254)
-        .filter(|key| keys[*key as usize] & 0x80 != 0)
-        .collect())
-}
-pub fn any_keyboard_key_down() -> bool {
-    (8..=254).any(|key| unsafe {
-        windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(key) < 0
-    })
-}
-
-/// Physical key state, independent of winit's buffered keyboard message queue.
-pub fn pressed_keyboard_keys() -> Vec<u16> {
-    // 0xF0..0xFE are Japanese IME mode keys, not held physical keys. Some
-    // layouts report these continuously, preventing any release wait finishing.
-    (8u16..=0xE2)
-        .filter(|key| unsafe {
-            windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(*key as i32) < 0
-        })
-        .collect()
-}
-
-pub fn recorded_keyboard_keys() -> Option<Vec<u16>> {
-    crate::shortcut::take_capture_keys()
-}
-
-pub fn foreground_key_event(name: &str, down: bool) {
-    crate::shortcut::foreground_key_event(name, down);
-}
-pub fn foreground_focus_gained() {
-    crate::shortcut::foreground_focus_gained();
-}
-pub fn foreground_is_ours() -> bool {
-    unsafe {
-        let window = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
-        let mut pid = 0;
-        windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(window, &mut pid);
-        pid == std::process::id()
-    }
-}
-
-pub fn double_click_time() -> u32 {
-    unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() }
-}
-
-/// The settings window owns this modal; No/Escape leaves the tool running.
-pub fn confirm_tool_exit() -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_YESNO,
-    };
-    if !foreground_is_ours() {
-        return false;
-    }
-    let title: Vec<u16> = "ツールを終了\0".encode_utf16().collect();
-    let message: Vec<u16> = "AlcMuteを終了しますか？\n\n終了すると、ショートカットやトレイからのミュート操作は利用できなくなります。\n未保存の設定変更は保存されません。\0".encode_utf16().collect();
-    unsafe {
-        MessageBoxW(
-            GetForegroundWindow(),
-            message.as_ptr(),
-            title.as_ptr(),
-            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
-        ) == IDYES
-    }
-}
-
-/// A modal, owned confirmation. No/Escape is the default and changes nothing.
-pub fn confirm_settings_reset() -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_YESNO,
-    };
-    if !foreground_is_ours() {
-        return false;
-    }
-    let title: Vec<u16> = "すべての設定を初期化\0".encode_utf16().collect();
-    let message: Vec<u16> = "保存した設定を削除し、すべての項目を初期値に戻します。\nWindowsサインイン時の自動起動も無効になります。\n\n初期化しますか？\0".encode_utf16().collect();
-    unsafe {
-        MessageBoxW(
-            GetForegroundWindow(),
-            message.as_ptr(),
-            title.as_ptr(),
-            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
-        ) == IDYES
     }
 }

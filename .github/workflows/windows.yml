@@ -17,13 +17,29 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Test
         run: cargo test --workspace --locked -- --test-threads=1
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test development tools
+        run: cargo test --workspace --features dev-tools --locked -- --test-threads=1
       - name: Build
         run: cargo build --release --locked
+      - name: Verify embedded license notices
+        shell: pwsh
+        run: |
+          $binary = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes('target/release/alcmute.exe'))
+          foreach ($path in @('LICENSE', 'assets/dependency-licenses.txt')) {
+            if (-not $binary.Contains([IO.File]::ReadAllText($path))) {
+              throw "Missing embedded license text: $path"
+            }
+          }
+          if ($binary.Contains('/alcmute/test/')) {
+            throw 'Development OSC endpoints found in production binary'
+          }
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: alcmute-windows

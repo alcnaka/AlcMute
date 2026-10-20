@@ -194,9 +194,9 @@ impl Chord {
 // held keys and modifiers before applying the current low-level event (whose
 // asynchronous state Windows has not updated yet).
 fn reconcile_keys(down: &mut [bool], pressed: impl Fn(usize) -> bool) {
-    for key in 8..=226 {
-        if down[key] || matches!(key, 0x5b..=0x5c | 0xa0..=0xa5) {
-            down[key] = pressed(key);
+    for (key, held) in down.iter_mut().enumerate().take(227).skip(8) {
+        if *held || matches!(key, 0x5b..=0x5c | 0xa0..=0xa5) {
+            *held = pressed(key);
         }
     }
 }

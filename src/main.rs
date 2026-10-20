@@ -267,6 +267,9 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 fn report_startup_error(options: &Options, error: &str) {
+    report_error(options, "AlcMuteの起動に失敗しました", error);
+}
+fn report_error(options: &Options, title: &str, error: &str) {
     let log = match options.write_log(error) {
         Ok(path) => format!("ログ：{}", path.display()),
         Err(reason) => format!(
@@ -274,7 +277,7 @@ fn report_startup_error(options: &Options, error: &str) {
             options.data_dir.join("error.log").display()
         ),
     };
-    alcmute_core::windows::show_error("AlcMuteの起動に失敗しました", &format!("{error}\n\n{log}\n\n設定ファイル・OSC受信ポート・ショートカットを確認して、再起動してください。"));
+    alcmute_core::windows::show_error(title, &format!("{error}\n\n{log}\n\n設定ファイル・OSC受信ポート・ショートカットを確認して、再起動してください。"));
 }
 fn run(options: Options) -> Result<(), String> {
     let tray = Tray::new().map_err(|e| e.to_string())?;
@@ -294,7 +297,7 @@ fn run(options: Options) -> Result<(), String> {
                 let ui = match Settings::new() {
                     Ok(ui) => ui,
                     Err(e) => {
-                        options.log(&e.to_string());
+                        report_error(&options, "設定画面を表示できません", &e.to_string());
                         return;
                     }
                 };
@@ -310,7 +313,7 @@ fn run(options: Options) -> Result<(), String> {
                             autostart,
                             show_settings_on_startup: weak
                                 .upgrade()
-                                .map_or(true, |ui| ui.get_show_settings_on_startup()),
+                                .is_none_or(|ui| ui.get_show_settings_on_startup()),
                             tray_double_click_settings: weak
                                 .upgrade()
                                 .is_some_and(|ui| ui.get_tray_double_click_action() == 1),
@@ -390,7 +393,7 @@ fn run(options: Options) -> Result<(), String> {
                 }
                 ui.set_message("".into());
                 if let Err(error) = ui.show() {
-                    options.log(&error.to_string());
+                    report_error(&options, "設定画面を表示できません", &error.to_string());
                 } else {
                     activate_settings(ui);
                     options.marker("open");
@@ -480,7 +483,8 @@ fn run(options: Options) -> Result<(), String> {
         }
     });
     // The Slint event-loop proxy carries a Send payload. UI handles stay on the UI thread.
-    thread_local! { static HANDLER: RefCell<Option<Rc<dyn Fn(Event)>>> = RefCell::new(None); }
+    type UiEventHandler = Option<Rc<dyn Fn(Event)>>;
+    thread_local! { static HANDLER: RefCell<UiEventHandler> = RefCell::new(None); }
     HANDLER.with(|handler| *handler.borrow_mut() = Some(event_handler));
     let notify = Arc::new(move |event| {
         let _ = slint::invoke_from_event_loop(move || {
@@ -524,7 +528,7 @@ fn run(options: Options) -> Result<(), String> {
     let about_options = options.clone();
     tray.on_about(move || {
         if let Err(error) = about::show(&about) {
-            about_options.log(&error);
+            report_error(&about_options, "AlcMuteについてを表示できません", &error);
         }
     });
     tray.on_exit_requested(|| {
@@ -589,80 +593,6 @@ impl DoubleClick {
             self.last = Some(now);
             false
         }
-    }
-}
-
-#[cfg(test)]
-mod double_click_tests {
-    use super::*;
-    #[test]
-    fn recording_keeps_the_full_chord_when_keys_are_released_separately() {
-        let mut capture = CaptureState::default();
-        assert!(capture.stage_shortcut("KeyK".into()));
-        assert!(capture.stage_shortcut("KeyK+KeyL".into()));
-        assert!(!capture.stage_shortcut("KeyL".into()));
-        assert_eq!(capture.pending_shortcut.as_deref(), Some("KeyK+KeyL"));
-    }
-    #[test]
-    fn dirty_tracks_edit_revert_save_and_reset_for_every_setting() {
-        let ui = Settings::new().unwrap();
-        let original = Config::default();
-        fill_config(&ui, &original);
-        assert!(!ui.get_dirty());
-        assert!(ui.get_double_click_toggle_selected());
-        assert!(!ui.get_double_click_settings_selected());
-        ui.set_target("127.0.0.1:9010".into());
-        assert!(ui.get_dirty());
-        ui.set_target(original.target.clone().into());
-        assert!(!ui.get_dirty());
-        ui.set_listen("127.0.0.1:9011".into());
-        assert!(ui.get_dirty());
-        fill_config(&ui, &original);
-        ui.set_shortcut("RightCtrl+RightAlt".into());
-        assert!(ui.get_dirty());
-        fill_config(&ui, &original);
-        ui.set_autostart(true);
-        assert!(ui.get_dirty());
-        fill_config(&ui, &original);
-        ui.set_show_settings_on_startup(false);
-        assert!(ui.get_dirty());
-        fill_config(&ui, &original);
-        ui.set_tray_double_click_action(1);
-        assert!(ui.get_dirty());
-        assert!(!ui.get_double_click_toggle_selected());
-        assert!(ui.get_double_click_settings_selected());
-        let saved = Config {
-            tray_double_click_settings: true,
-            ..original.clone()
-        };
-        set_saved_config(&ui, &saved);
-        assert!(!ui.get_dirty());
-        ui.set_tray_double_click_action(0);
-        assert!(ui.get_dirty());
-        fill_config(&ui, &original);
-        assert!(!ui.get_dirty());
-        assert!(ui.get_double_click_toggle_selected());
-        assert!(!ui.get_double_click_settings_selected());
-        // A full reset must also reset the actual radio presentation after a
-        // saved 'open settings' selection, not merely the persisted flag.
-        fill_config(&ui, &saved);
-        assert!(ui.get_double_click_settings_selected());
-        fill_config(&ui, &Config::default());
-        slint::platform::update_timers_and_animations();
-        assert_eq!(ui.get_tray_double_click_action(), 0);
-        assert!(ui.get_double_click_toggle_selected());
-        assert!(!ui.get_double_click_settings_selected());
-        assert!(!ui.get_dirty());
-    }
-    #[test]
-    fn pairs_clicks_without_turning_a_triple_click_into_two_actions() {
-        let mut clicks = DoubleClick::default();
-        let now = std::time::Instant::now();
-        let interval = std::time::Duration::from_millis(400);
-        assert!(!clicks.click(now, interval));
-        assert!(clicks.click(now + interval, interval));
-        assert!(!clicks.click(now + interval + interval, interval));
-        assert!(!clicks.click(now + std::time::Duration::from_secs(2), interval));
     }
 }
 
@@ -855,7 +785,6 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
                 drop(state);
                 restore_capture_hotkey(&ui, &core);
             }
-            return;
         }
     });
     let weak = ui.as_weak();
@@ -925,4 +854,78 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
             }
         }
     });
+}
+
+#[cfg(test)]
+mod double_click_tests {
+    use super::*;
+    #[test]
+    fn recording_keeps_the_full_chord_when_keys_are_released_separately() {
+        let mut capture = CaptureState::default();
+        assert!(capture.stage_shortcut("KeyK".into()));
+        assert!(capture.stage_shortcut("KeyK+KeyL".into()));
+        assert!(!capture.stage_shortcut("KeyL".into()));
+        assert_eq!(capture.pending_shortcut.as_deref(), Some("KeyK+KeyL"));
+    }
+    #[test]
+    fn dirty_tracks_edit_revert_save_and_reset_for_every_setting() {
+        let ui = Settings::new().unwrap();
+        let original = Config::default();
+        fill_config(&ui, &original);
+        assert!(!ui.get_dirty());
+        assert!(ui.get_double_click_toggle_selected());
+        assert!(!ui.get_double_click_settings_selected());
+        ui.set_target("127.0.0.1:9010".into());
+        assert!(ui.get_dirty());
+        ui.set_target(original.target.clone().into());
+        assert!(!ui.get_dirty());
+        ui.set_listen("127.0.0.1:9011".into());
+        assert!(ui.get_dirty());
+        fill_config(&ui, &original);
+        ui.set_shortcut("RightCtrl+RightAlt".into());
+        assert!(ui.get_dirty());
+        fill_config(&ui, &original);
+        ui.set_autostart(true);
+        assert!(ui.get_dirty());
+        fill_config(&ui, &original);
+        ui.set_show_settings_on_startup(false);
+        assert!(ui.get_dirty());
+        fill_config(&ui, &original);
+        ui.set_tray_double_click_action(1);
+        assert!(ui.get_dirty());
+        assert!(!ui.get_double_click_toggle_selected());
+        assert!(ui.get_double_click_settings_selected());
+        let saved = Config {
+            tray_double_click_settings: true,
+            ..original.clone()
+        };
+        set_saved_config(&ui, &saved);
+        assert!(!ui.get_dirty());
+        ui.set_tray_double_click_action(0);
+        assert!(ui.get_dirty());
+        fill_config(&ui, &original);
+        assert!(!ui.get_dirty());
+        assert!(ui.get_double_click_toggle_selected());
+        assert!(!ui.get_double_click_settings_selected());
+        // A full reset must also reset the actual radio presentation after a
+        // saved 'open settings' selection, not merely the persisted flag.
+        fill_config(&ui, &saved);
+        assert!(ui.get_double_click_settings_selected());
+        fill_config(&ui, &Config::default());
+        slint::platform::update_timers_and_animations();
+        assert_eq!(ui.get_tray_double_click_action(), 0);
+        assert!(ui.get_double_click_toggle_selected());
+        assert!(!ui.get_double_click_settings_selected());
+        assert!(!ui.get_dirty());
+    }
+    #[test]
+    fn pairs_clicks_without_turning_a_triple_click_into_two_actions() {
+        let mut clicks = DoubleClick::default();
+        let now = std::time::Instant::now();
+        let interval = std::time::Duration::from_millis(400);
+        assert!(!clicks.click(now, interval));
+        assert!(clicks.click(now + interval, interval));
+        assert!(!clicks.click(now + interval + interval, interval));
+        assert!(!clicks.click(now + std::time::Duration::from_secs(2), interval));
+    }
 }

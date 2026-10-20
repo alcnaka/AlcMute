@@ -203,7 +203,7 @@ pub fn mute_value(packet: &OscPacket) -> Option<bool> {
                 _ => None,
             }
         }
-        OscPacket::Bundle(bundle) => bundle.content.iter().filter_map(mute_value).last(),
+        OscPacket::Bundle(bundle) => bundle.content.iter().filter_map(mute_value).next_back(),
         _ => None,
     }
 }
@@ -459,7 +459,7 @@ impl Controller {
             config.autostart = windows::startup_enabled(&options)?;
         }
         let manager = GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
-        let hotkey: HotKey = config.shortcut.parse().map_err(|e| format!("{e}"))?;
+        let hotkey: HotKey = config.shortcut.parse()?;
         manager
             .register(hotkey)
             .map_err(|e| format!("Shortcut is unavailable: {e}"))?;
@@ -494,7 +494,7 @@ impl Controller {
     }
     pub fn apply(&mut self, config: Config) -> std::result::Result<(), ApplyError> {
         config.validate()?;
-        let hotkey: HotKey = config.shortcut.parse().map_err(|e| format!("{e}"))?;
+        let hotkey: HotKey = config.shortcut.parse().map_err(ApplyError::from)?;
         let changed = hotkey != self.hotkey;
         let needs_registration = changed || !self.hotkey_registered;
         let network_changed = config.target != self.config.target
@@ -564,6 +564,9 @@ impl Controller {
                 error
                     .message
                     .push_str(&format!("; {}", failures.join("; ")));
+            }
+            if !self.orphan_hotkeys.is_empty() {
+                error.kind = ApplyErrorKind::RecoveryFailed;
             }
             if self.runtime.is_none() {
                 error.kind = ApplyErrorKind::RecoveryFailed;
@@ -815,6 +818,33 @@ mod tests {
             assert!(matches!(rx.try_recv().unwrap(), Command::Toggle));
         }
         assert!(matches!(rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn shutdown_does_not_wait_for_a_full_toggle_queue() {
+        let target = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let config = Config {
+            listen: "127.0.0.1:0".into(),
+            target: target.local_addr().unwrap().to_string(),
+            ..Default::default()
+        };
+        let options = Options {
+            data_dir: std::env::temp_dir(),
+            benchmark: false,
+        };
+        let worker = runtime(
+            &config,
+            Arc::new(Mutex::new(Status::default())),
+            Arc::new(|_| {}),
+            &options,
+        )
+        .unwrap();
+        for _ in 0..COMMAND_CAPACITY {
+            let _ = worker.tx.send(Command::Toggle);
+        }
+        let start = std::time::Instant::now();
+        drop(worker);
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]
