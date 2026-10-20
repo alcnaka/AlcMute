@@ -91,8 +91,9 @@ PoCのNWG版、計測結果、実行ログ、個人の設定ファイルは含�
 
 ## 配布
 
-GitHub Releasesでのポータブル版・インストーラー配布を予定しています。
-現時点ではソースからのビルドと、CIの実行ファイル成果物を用意しています。
+[GitHub Releases](https://github.com/alcnaka/AlcMute/releases)からWindows向けの
+ポータブル版をダウンロードできます。ZIPを展開し、`alcmute.exe`を起動してください。
+インストーラーは今後対応予定です。
 
 ## ライセンス
 
