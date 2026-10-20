@@ -152,7 +152,7 @@ impl Options {
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--test-mode" => options.benchmark = true,
+                "--test-mode" if cfg!(feature = "dev-tools") => options.benchmark = true,
                 "--data-dir" => {
                     options.data_dir =
                         PathBuf::from(args.next().ok_or("--data-dir requires a path")?)
@@ -221,13 +221,33 @@ pub fn voice_pulse(socket: &UdpSocket, target: &str) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
 enum Command {
     Toggle,
     Refresh,
     Stop,
 }
+const COMMAND_CAPACITY: usize = 32;
+#[derive(Clone)]
+struct CommandSender {
+    tx: mpsc::SyncSender<Command>,
+    status: Arc<Mutex<Status>>,
+    notify: Notify,
+}
+impl CommandSender {
+    // Never wait for the OSC worker on the UI or keyboard-hook thread.
+    fn send(&self, command: Command) -> std::result::Result<(), mpsc::TrySendError<Command>> {
+        let result = self.tx.try_send(command);
+        if let Err(mpsc::TrySendError::Full(Command::Toggle)) = &result {
+            self.status.lock().unwrap().detail =
+                "切り替え要求が多すぎます。少し待ってから操作してください".into();
+            (self.notify)(Event::Status);
+        }
+        result
+    }
+}
 struct Runtime {
-    tx: mpsc::Sender<Command>,
+    tx: CommandSender,
     stop: Arc<AtomicBool>,
     address: SocketAddr,
     threads: Vec<JoinHandle<()>>,
@@ -261,8 +281,14 @@ fn runtime(
     })?;
     let address = receive.local_addr().map_err(|e| e.to_string())?;
     let send = UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(COMMAND_CAPACITY);
+    let tx = CommandSender {
+        tx,
+        status: status.clone(),
+        notify: notify.clone(),
+    };
     let stop = Arc::new(AtomicBool::new(false));
+    let command_stop = stop.clone();
     let target = config.target.clone();
     let command_status = status.clone();
     let command_notify = notify.clone();
@@ -270,6 +296,9 @@ fn runtime(
     let commands = thread::spawn(move || {
         let mut toggle_count = 0u64;
         while let Ok(command) = rx.recv() {
+            if command_stop.load(Ordering::Acquire) {
+                break;
+            }
             match command {
                 Command::Stop => break,
                 Command::Refresh => {
@@ -313,6 +342,7 @@ fn runtime(
             match result {
                 Ok((count, source)) if source.ip().is_loopback() => {
                     if let Ok((_, packet)) = rosc::decoder::decode_udp(&bytes[..count]) {
+                        #[cfg(feature = "dev-tools")]
                         if benchmark {
                             if let OscPacket::Message(ref message) = packet {
                                 let action = match message.addr.as_str() {
@@ -458,6 +488,10 @@ impl Controller {
             let _ = runtime.tx.send(Command::Toggle);
         }
     }
+    /// Sending OSC does not require a successful OSCQuery state lookup.
+    pub fn can_toggle(&self) -> bool {
+        self.runtime.is_some()
+    }
     pub fn apply(&mut self, config: Config) -> std::result::Result<(), ApplyError> {
         config.validate()?;
         let hotkey: HotKey = config.shortcut.parse().map_err(|e| format!("{e}"))?;
@@ -557,10 +591,13 @@ impl Controller {
             if let Some(old) = &self.runtime {
                 if self.hotkey_registered {
                     install_handler(old, self.hotkey);
+                } else if let Some(route) = HOTKEY_ROUTE.get() {
+                    route.lock().unwrap().take();
                 }
                 let _ = old.tx.send(Command::Refresh);
             } else if let Some(route) = HOTKEY_ROUTE.get() {
                 route.lock().unwrap().take();
+                (self.notify)(Event::Status);
             }
             if error.kind == ApplyErrorKind::Rejected
                 && self.runtime.is_some()
@@ -717,7 +754,8 @@ fn commit_settings_with(
     Ok(())
 }
 // global-hotkey's handler is a OnceCell: install once, route through a mutable slot.
-static HOTKEY_ROUTE: OnceLock<Mutex<Option<(u32, mpsc::Sender<Command>)>>> = OnceLock::new();
+type HotkeyRoute = Option<(u32, CommandSender)>;
+static HOTKEY_ROUTE: OnceLock<Mutex<HotkeyRoute>> = OnceLock::new();
 fn install_handler(runtime: &Runtime, hotkey: HotKey) {
     let route = HOTKEY_ROUTE.get_or_init(|| {
         GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
@@ -757,6 +795,36 @@ impl Drop for Controller {
 mod tests {
     use super::*;
     #[test]
+    fn toggle_queue_is_bounded_and_preserves_normal_bursts() {
+        let (tx, rx) = mpsc::sync_channel(COMMAND_CAPACITY);
+        let status = Arc::new(Mutex::new(Status::default()));
+        let sender = CommandSender {
+            tx,
+            status: status.clone(),
+            notify: Arc::new(|_| {}),
+        };
+        for _ in 0..COMMAND_CAPACITY {
+            sender.send(Command::Toggle).unwrap();
+        }
+        assert!(matches!(
+            sender.send(Command::Toggle),
+            Err(mpsc::TrySendError::Full(_))
+        ));
+        assert!(!status.lock().unwrap().detail.is_empty());
+        for _ in 0..COMMAND_CAPACITY {
+            assert!(matches!(rx.try_recv().unwrap(), Command::Toggle));
+        }
+        assert!(matches!(rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn test_mode_requires_explicit_development_feature() {
+        assert_eq!(
+            Options::parse_args(["--test-mode".into()]).is_ok(),
+            cfg!(feature = "dev-tools")
+        );
+    }
+    #[test]
     fn invalid_arguments_and_corrupt_settings_fail_without_overwriting_data() {
         assert!(Options::parse_args(["--data-dir".into()]).is_err());
         assert!(Options::parse_args(["--unknown".into()]).is_err());
@@ -791,9 +859,13 @@ mod tests {
     fn apply_preserves_runtime_and_recovers_from_network_storage_and_hotkey_failures() {
         let dir = std::env::temp_dir().join(format!("alcmute-apply-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
+        let target = UdpSocket::bind("127.0.0.1:0").unwrap();
+        target
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
         let config = Config {
             listen: free_address(),
-            target: free_address(),
+            target: target.local_addr().unwrap().to_string(),
             shortcut: "Ctrl+Alt+Shift+F23".into(),
             ..Default::default()
         };
@@ -804,6 +876,23 @@ mod tests {
             benchmark: true,
         };
         let mut core = Controller::new(options, Arc::new(|_| {})).unwrap();
+        assert_eq!(core.status().muted, None);
+        assert!(core.can_toggle());
+        core.toggle();
+        for expected in [1, 0] {
+            let mut bytes = [0; 256];
+            let count = target.recv(&mut bytes).unwrap();
+            let (_, packet) = rosc::decoder::decode_udp(&bytes[..count]).unwrap();
+            let OscPacket::Message(message) = packet else {
+                panic!("Expected a voice pulse")
+            };
+            assert_eq!(message.args, vec![OscType::Int(expected)]);
+        }
+        assert_eq!(
+            core.status().muted,
+            None,
+            "sending must not invent a confirmed mute state"
+        );
         let id = core.runtime.as_ref().unwrap().threads[0].thread().id();
         core.status.lock().unwrap().muted = Some(true);
         let mut update = core.config.clone();
@@ -863,6 +952,7 @@ mod tests {
         let error = core.apply(same_port).unwrap_err();
         assert_eq!(error.kind, ApplyErrorKind::RecoveryFailed);
         assert!(core.runtime.is_none());
+        assert!(!core.can_toggle());
         assert_eq!(core.status().muted, None);
         core.faults.runtime.set(false);
         core.faults.runtime_recovery.set(false);

@@ -385,10 +385,7 @@ fn run(options: Options) -> Result<(), String> {
                         core.config.tray_double_click_settings,
                     ));
                     ui.set_state(display_status(&core.status()).into());
-                    ui.set_can_toggle(
-                        core.status().connection == Connection::Connected
-                            && core.status().muted.is_some(),
-                    );
+                    ui.set_can_toggle(core.can_toggle());
                     set_saved_config(ui, &core.config);
                 }
                 ui.set_message("".into());
@@ -446,14 +443,15 @@ fn run(options: Options) -> Result<(), String> {
                 let snapshot = core.status();
                 let status = snapshot.text();
                 let label = display_status(&snapshot);
-                let can_toggle =
+                let state_known =
                     snapshot.connection == Connection::Connected && snapshot.muted.is_some();
+                let can_toggle = core.can_toggle();
                 if core.options.benchmark {
                     let _ = std::fs::write(core.options.data_dir.join("ui-status.txt"), &status);
                 }
                 if let Some(tray) = weak_tray.upgrade() {
                     tray.set_status_text(format!("AlcMute - {label}").into());
-                    tray.set_mute_state(if can_toggle {
+                    tray.set_mute_state(if state_known {
                         if snapshot.muted == Some(true) {
                             1
                         } else {
