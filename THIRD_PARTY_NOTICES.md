@@ -16,5 +16,10 @@ Local changes to the vendored sources are described in `vendor/README.md`.
 The README includes the official Made with Slint attribution badge. Preserve
 this attribution on the public project/download page when distributing under
 Slint's royalty-free application license; consult the bundled license text.
-Before publishing binary releases, collect the notices and license texts for
-all transitive dependencies into the release package as well.
+The application embeds the collected dependency notices and license texts in
+`assets/dependency-licenses.txt`. Open "AlcMuteについて" from the tray menu to
+read them without external license files. Regenerate this asset with
+`scripts/update-license-notices.ps1` whenever Cargo.lock changes.
+For packages which omit license files from their crate archive, the generator
+uses the upstream license texts in `assets/license-overrides/`; these retain
+their official source URLs. Review these texts when updating those packages.

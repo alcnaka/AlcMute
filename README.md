@@ -15,6 +15,7 @@ VRChatが非アクティブでも、ショートカットやWindowsの通知領�
 - 左右のCtrl・Altなどを区別した登録、修飾キーだけの組み合わせ、`K + L`などの同時押し
 - VRChatから取得したミュート状態に応じたトレイアイコン
 - トレイメニューと、動作を選べるダブルクリック
+- トレイメニューの「AlcMuteについて」で制作者・リポジトリ・ライセンス本文を表示
 - 設定画面、項目ごとのReset、確認付きの全初期化
 - Windowsサインイン時の自動起動、起動時の設定画面表示の切り替え
 - 異なるDPIのモニター間で移動するためのWindows描画・ウィンドウ処理の対策
@@ -100,3 +101,8 @@ PoCのNWG版、計測結果、実行ログ、個人の設定ファイルは含�
 AlcMuteの独自コードは[MIT License](LICENSE)です。
 依存ライブラリと`vendor/`のソースには、それぞれのライセンスが適用されます。
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)と各ライセンスファイルを参照してください。
+
+実行ファイルにはMIT本文と依存ライブラリのライセンス情報を埋め込み、
+トレイメニューの「AlcMuteについて」から表示できます。
+依存関係を変更した場合はPowerShell 7で`./scripts/update-license-notices.ps1`を実行し、
+`assets/dependency-licenses.txt`を更新してください。

@@ -2,6 +2,7 @@
 use alcmute_core::{Config, Connection, Controller, Event, Options};
 use slint::winit_030::WinitWindowAccessor;
 use slint::ComponentHandle;
+mod about;
 mod shortcut;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 slint::slint! {
@@ -225,12 +226,13 @@ slint::slint! {
         in property <bool> can-toggle;
         icon: root.mute-state == 1 ? @image-url("../assets/mic-muted.svg") : root.mute-state == 2 ? @image-url("../assets/mic-unmuted.svg") : @image-url("../assets/mic-unknown.svg");
         tooltip: root.status-text;
-        callback toggle(); callback settings(); callback exit-requested();
+        callback toggle(); callback settings(); callback about(); callback exit-requested();
         callback icon-clicked();
         clicked => { root.icon-clicked(); }
         Menu {
             MenuItem { title: "ミュート切り替え"; enabled: root.can-toggle; activated => { root.toggle(); } }
             MenuItem { title: "設定"; activated => { root.settings(); } }
+            MenuItem { title: "AlcMuteについて"; activated => { root.about(); } }
             MenuItem { title: "終了"; activated => { root.exit-requested(); } }
         }
     }
@@ -490,6 +492,13 @@ fn run(options: Options) -> Result<(), String> {
     });
     let startup_show = show.clone();
     tray.on_settings(move || show());
+    let about = Rc::new(RefCell::new(None));
+    let about_options = options.clone();
+    tray.on_about(move || {
+        if let Err(error) = about::show(&about) {
+            about_options.log(&error);
+        }
+    });
     tray.on_exit_requested(|| {
         let _ = slint::quit_event_loop();
     });
