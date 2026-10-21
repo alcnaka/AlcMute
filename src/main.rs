@@ -108,6 +108,7 @@ slint::slint! {
         callback save(string, string, string, bool);
         callback toggle();
         callback dismiss();
+        callback about();
         callback quit-confirmed();
         callback reset-field(int);
         callback reset-all();
@@ -200,6 +201,7 @@ slint::slint! {
                         LineEdit { text <=> root.listen; enabled: !root.capturing; }
                         Rectangle { height: 1px; background: #888; opacity: 0.25; }
                         SectionTitle { text: "管理"; }
+                        Button { text: "AlcMuteについて"; enabled: !root.capturing; clicked => {root.about();} }
                         Hint { text: "設定ファイル：\n" + root.config-path; }
                         Button { text: "すべての設定を初期化"; enabled: !root.capturing; clicked => {root.reset-all();} }
                         Hint { text: "確認後に保存済み設定を削除し、自動起動も無効にします。"; }
@@ -288,10 +290,20 @@ fn run(options: Options) -> Result<(), String> {
     let weak_tray = tray.as_weak();
     let controller_events = controller.clone();
     let settings_events = settings.clone();
+    let show_about: Rc<dyn Fn()> = {
+        let about = Rc::new(RefCell::new(None));
+        let options = options.clone();
+        Rc::new(move || {
+            if let Err(error) = about::show(&about) {
+                report_error(&options, "AlcMuteについてを表示できません", &error);
+            }
+        })
+    };
     let show: Rc<dyn Fn()> = {
         let controller = controller.clone();
         let settings = settings.clone();
         let options = options.clone();
+        let show_about = show_about.clone();
         Rc::new(move || {
             if settings.borrow().is_none() {
                 let ui = match Settings::new() {
@@ -302,6 +314,8 @@ fn run(options: Options) -> Result<(), String> {
                     }
                 };
                 install_editing(&ui, controller.clone(), options.clone());
+                let show_about = show_about.clone();
+                ui.on_about(move || show_about());
                 let weak = ui.as_weak();
                 let controller_save = controller.clone();
                 ui.on_save(move |target, listen, shortcut, autostart| {
@@ -524,13 +538,7 @@ fn run(options: Options) -> Result<(), String> {
     });
     let startup_show = show.clone();
     tray.on_settings(move || show());
-    let about = Rc::new(RefCell::new(None));
-    let about_options = options.clone();
-    tray.on_about(move || {
-        if let Err(error) = about::show(&about) {
-            report_error(&about_options, "AlcMuteについてを表示できません", &error);
-        }
-    });
+    tray.on_about(move || show_about());
     tray.on_exit_requested(|| {
         let _ = slint::quit_event_loop();
     });
