@@ -1,9 +1,8 @@
 //! Windows-only integration used by the selected Slint frontend.
-use crate::{Config, Connection, Event, Notify, Options, Result, Status};
+use crate::{Config, Connection, Event, Notify, Result, Status};
 use serde_json::Value;
 use std::{
     net::SocketAddr,
-    path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -27,12 +26,10 @@ use windows_sys::Win32::{
         Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
     },
 };
-use winreg::{
-    enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE},
-    RegKey,
-};
 
 struct Handle(HANDLE);
+#[path = "ipc.rs"]
+pub mod ipc;
 impl Drop for Handle {
     fn drop(&mut self) {
         unsafe {
@@ -47,6 +44,9 @@ pub struct SingleInstance {
 }
 
 impl SingleInstance {
+    pub fn installer_guard() -> Result<Option<Self>> {
+        Self::named("Local\\Alcnaka.AlcMute.Installation")
+    }
     pub fn acquire() -> Result<Option<Self>> {
         Self::named(&format!("Local\\Alcnaka.AlcMute.{}", current_user_id()?))
     }
@@ -125,6 +125,55 @@ pub fn show_error(title: &str, message: &str) {
             MB_OK | MB_ICONERROR,
         );
     }
+}
+pub fn confirm(title: &str, message: &str) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_YESNO,
+    };
+    let title: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
+    let message: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION,
+        ) == IDYES
+    }
+}
+pub fn wait_for_update_parent(pid: u32, expected: &std::path::Path) -> Result<()> {
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, ERROR_INVALID_PARAMETER},
+        System::Threading::{QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+    let raw = unsafe {
+        OpenProcess(
+            PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    if raw.is_null() {
+        return if unsafe { GetLastError() } == ERROR_INVALID_PARAMETER {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error().to_string())
+        };
+    }
+    let handle = Handle(raw);
+    let mut text = vec![0u16; 32768];
+    let mut size = text.len() as u32;
+    if unsafe { QueryFullProcessImageNameW(handle.0, 0, text.as_mut_ptr(), &mut size) } == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let actual = std::path::PathBuf::from(String::from_utf16_lossy(&text[..size as usize]));
+    if std::fs::canonicalize(actual).ok() != std::fs::canonicalize(expected).ok() {
+        return Err("Update parent executable mismatch".into());
+    }
+    if unsafe { WaitForSingleObject(handle.0, 30000) } != WAIT_OBJECT_0 {
+        return Err("AlcMuteの終了待ちがタイムアウトしました。既存EXEは置換していません。".into());
+    }
+    Ok(())
 }
 #[cfg_attr(
     test,
@@ -398,55 +447,16 @@ pub(crate) fn spawn_monitor(
     })
 }
 
-// Test mode uses a non-startup key, never the user's real sign-in registration.
-fn startup_path(options: &Options) -> &'static str {
-    if options.benchmark {
-        r"Software\AlcMute\Testing\Run"
-    } else {
-        r"Software\Microsoft\Windows\CurrentVersion\Run"
-    }
-}
-const STARTUP_NAME: &str = "AlcMute";
-const LEGACY_STARTUP_NAME: &str = "VRChatMuteController";
+#[path = "startup.rs"]
+mod startup;
+#[cfg(test)]
+use startup::startup_command;
+pub use startup::{
+    installation_directory, installed_version, migrate_startup, registered_directory,
+    restore_startup, set_startup, startup_available, startup_enabled, startup_snapshot,
+    uninstall_cleanup,
+};
 
-pub fn migrate_startup(options: &Options) -> Result<()> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = match hkcu.open_subkey_with_flags(startup_path(options), KEY_READ | KEY_WRITE) {
-        Ok(key) => key,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(format!("Cannot migrate sign-in startup setting: {error}")),
-    };
-    match key.get_value::<String, _>(LEGACY_STARTUP_NAME) {
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.to_string()),
-    }
-    let previous = startup_snapshot(options)?;
-    if previous.is_none() {
-        key.set_value(STARTUP_NAME, &expected_command(options)?)
-            .map_err(|e| e.to_string())?;
-    }
-    if let Err(error) = key.delete_value(LEGACY_STARTUP_NAME) {
-        restore_startup(options, previous.as_deref())?;
-        return Err(format!(
-            "Cannot remove legacy sign-in startup setting: {error}"
-        ));
-    }
-    Ok(())
-}
-pub fn startup_snapshot(options: &Options) -> Result<Option<String>> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = match hkcu.open_subkey_with_flags(startup_path(options), KEY_READ) {
-        Ok(key) => key,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Cannot read sign-in startup setting: {error}")),
-    };
-    match key.get_value(STARTUP_NAME) {
-        Ok(command) => Ok(Some(command)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!("Cannot read sign-in startup setting: {error}")),
-    }
-}
 pub fn quote_arg(arg: &str) -> String {
     let mut result = String::from("\"");
     let mut slashes = 0;
@@ -466,62 +476,6 @@ pub fn quote_arg(arg: &str) -> String {
     result.push_str(&"\\".repeat(slashes * 2));
     result.push('"');
     result
-}
-fn startup_command(exe: &Path, directory: &Path) -> Result<String> {
-    let exe = exe
-        .to_str()
-        .ok_or("Executable path must be valid Unicode")?;
-    let directory = directory
-        .to_str()
-        .ok_or("Settings path must be valid Unicode")?;
-    let command = format!("{} --data-dir {}", quote_arg(exe), quote_arg(directory));
-    if command.encode_utf16().count() > 260 {
-        return Err("Startup command exceeds the Windows Run limit (260 characters). Move the app/settings to a shorter path.".into());
-    }
-    Ok(command)
-}
-fn expected_command(options: &Options) -> Result<String> {
-    startup_command(
-        &std::env::current_exe().map_err(|e| e.to_string())?,
-        &std::path::absolute(&options.data_dir).map_err(|e| e.to_string())?,
-    )
-}
-pub fn startup_enabled(options: &Options) -> Result<bool> {
-    let Some(saved) = startup_snapshot(options)? else {
-        return Ok(false);
-    };
-    Ok(expected_command(options).is_ok_and(|expected| saved == expected))
-}
-pub fn restore_startup(options: &Options, command: Option<&str>) -> Result<()> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    // Avoid creating the Run key when the user has never enabled startup.
-    if command.is_none() && startup_snapshot(options)?.is_none() {
-        return Ok(());
-    }
-    let (key, _) = hkcu
-        .create_subkey(startup_path(options))
-        .map_err(|e| e.to_string())?;
-    if let Some(command) = command {
-        key.set_value(STARTUP_NAME, &command)
-            .map_err(|e| e.to_string())
-    } else {
-        match key.delete_value(STARTUP_NAME) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-}
-pub fn set_startup(options: &Options, enabled: bool) -> Result<()> {
-    let command = if enabled {
-        Some(expected_command(options)?)
-    } else {
-        None
-    };
-    if startup_snapshot(options)? == command {
-        return Ok(());
-    }
-    restore_startup(options, command.as_deref())
 }
 pub fn queued_keyboard_keys() -> Result<Vec<u16>> {
     let mut keys = [0u8; 256];
@@ -618,6 +572,7 @@ pub fn confirm_settings_reset() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     #[test]
     fn instance_mutex_blocks_duplicates_and_releases_on_drop() {
         let sid = current_user_id().unwrap();
@@ -685,59 +640,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             command,
-            "\"C:\\Apps\\mute.exe\" --data-dir \"D:\\My Settings\""
+            "\"C:\\Apps\\mute.exe\" --background --data-dir \"D:\\My Settings\""
         );
         assert!(!command.contains("--test-mode"));
-    }
-    #[test]
-    fn registry_round_trip_uses_only_the_non_startup_test_key() {
-        let options = Options {
-            data_dir: std::env::temp_dir().join(format!("vmc-{}", std::process::id())),
-            benchmark: true,
-        };
-        let previous = startup_snapshot(&options).unwrap();
-        let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
-            .create_subkey(startup_path(&options))
-            .unwrap();
-        assert_eq!(STARTUP_NAME, "AlcMute");
-        key.set_value(LEGACY_STARTUP_NAME, &"old application command")
-            .unwrap();
-        restore_startup(&options, None).unwrap();
-        migrate_startup(&options).unwrap();
-        assert!(startup_enabled(&options).unwrap());
-        assert!(key.get_value::<String, _>(LEGACY_STARTUP_NAME).is_err());
-        // Existing new registration wins over an old one, even across retries.
-        key.set_value(STARTUP_NAME, &"existing new command")
-            .unwrap();
-        key.set_value(LEGACY_STARTUP_NAME, &"old application command")
-            .unwrap();
-        migrate_startup(&options).unwrap();
-        migrate_startup(&options).unwrap();
-        assert_eq!(
-            startup_snapshot(&options).unwrap().as_deref(),
-            Some("existing new command")
-        );
-        set_startup(&options, true).unwrap();
-        assert!(startup_enabled(&options).unwrap());
-        std::fs::create_dir(&options.data_dir).unwrap();
-        let settings = options.data_dir.join("settings.toml");
-        let pending = options.data_dir.join("settings.pending.toml");
-        std::fs::create_dir(&settings).unwrap();
-        std::fs::write(&pending, "").unwrap();
-        assert!(crate::commit_settings(&options, &Config::default(), &pending).is_err());
-        assert!(
-            startup_enabled(&options).unwrap(),
-            "Failed reset must restore startup registration"
-        );
-        std::fs::remove_dir(&settings).unwrap();
-        std::fs::write(&settings, "shortcut = 'Ctrl+Alt+KeyN'").unwrap();
-        crate::commit_settings(&options, &Config::default(), &pending).unwrap();
-        assert!(
-            !settings.exists() && !pending.exists(),
-            "Reset removes saved preferences"
-        );
-        assert!(!startup_enabled(&options).unwrap());
-        restore_startup(&options, previous.as_deref()).unwrap();
-        std::fs::remove_dir(&options.data_dir).unwrap();
     }
 }

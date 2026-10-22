@@ -2,7 +2,10 @@ use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
 mod apply_error;
 mod migration;
 pub use apply_error::{ApplyError, ApplyErrorKind};
+pub mod settings_store;
 mod shortcut;
+#[cfg(feature = "windows-integration")]
+pub mod updater;
 use rosc::{OscMessage, OscPacket, OscType};
 use serde::{Deserialize, Serialize};
 use shortcut::{GlobalHotKeyManager, HotKey};
@@ -29,7 +32,7 @@ pub struct Config {
     pub listen: String,
     #[serde(skip_serializing_if = "default_shortcut")]
     pub shortcut: String,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(skip_serializing)]
     pub autostart: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub tray_double_click_settings: bool,
@@ -152,6 +155,7 @@ impl Options {
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--background" | "--install-migrate" | "--uninstall-cleanup" => {}
                 "--test-mode" if cfg!(feature = "dev-tools") => options.benchmark = true,
                 "--data-dir" => {
                     options.data_dir =
@@ -454,9 +458,6 @@ impl Controller {
         config.validate()?;
         #[cfg(feature = "windows-integration")]
         {
-            if migrate {
-                windows::migrate_startup(&options)?;
-            }
             config.autostart = windows::startup_enabled(&options)?;
         }
         let manager = GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
@@ -503,7 +504,11 @@ impl Controller {
     pub fn can_toggle(&self) -> bool {
         self.runtime.is_some()
     }
-    pub fn apply(&mut self, config: Config) -> std::result::Result<(), ApplyError> {
+    pub fn apply(&mut self, mut config: Config) -> std::result::Result<(), ApplyError> {
+        #[cfg(feature = "windows-integration")]
+        if !windows::startup_available(&self.options) {
+            config.autostart = false;
+        }
         config.validate()?;
         let hotkey: HotKey = config.shortcut.parse().map_err(ApplyError::from)?;
         let changed = hotkey != self.hotkey;
@@ -723,6 +728,10 @@ fn commit_settings(
     temp: &std::path::Path,
 ) -> std::result::Result<(), ApplyError> {
     #[cfg(feature = "windows-integration")]
+    if !windows::startup_available(options) {
+        return commit_settings_with(options, config, temp, || Ok(()), || Ok(()));
+    }
+    #[cfg(feature = "windows-integration")]
     let previous = windows::startup_snapshot(options)?;
     commit_settings_with(
         options,
@@ -751,14 +760,19 @@ fn commit_settings_with(
     update_startup()
         .map_err(|e| ApplyError::from(format!("Cannot update sign-in startup: {e}")))?;
     let path = options.data_dir.join("settings.toml");
-    let result = if config == &Config::default() {
-        match fs::remove_file(&path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            result => result,
+    let result = (|| -> std::io::Result<()> {
+        if path.is_file() {
+            settings_store::backup(&path).map_err(std::io::Error::other)?;
         }
-    } else {
-        fs::rename(temp, path)
-    };
+        if config == &Config::default() {
+            match fs::remove_file(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                result => result,
+            }
+        } else {
+            settings_store::replace(temp, &path).map_err(std::io::Error::other)
+        }
+    })();
     if let Err(error) = result {
         if let Err(rollback) = restore_startup() {
             return Err(ApplyError::recovery(format!(
@@ -1043,6 +1057,7 @@ mod tests {
         assert!(!dir.join("settings.pending.toml").exists());
         drop(core);
         fs::remove_file(settings).unwrap();
+        fs::remove_file(dir.join("settings.toml.bak")).unwrap();
         fs::remove_file(dir.join("toggle-count.txt")).ok();
         fs::remove_dir(dir).unwrap();
     }
