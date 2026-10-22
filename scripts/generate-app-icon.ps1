@@ -85,9 +85,6 @@ function Render-Png([string]$Source, [int]$Size) {
         return ,$stream.ToArray()
     } finally { $stream.Dispose(); $graphics.Dispose(); $bitmap.Dispose() }
 }
-foreach ($state in @('muted','unmuted','unknown')) {
-    [IO.File]::WriteAllBytes((Join-Path $assetDir "mic-$state.png"), (Render-Png (Join-Path $assetDir "img/alcmute-$state.png") 64))
-}
 $logo = Join-Path $assetDir 'img/alcmute-logo.png'
 [IO.File]::WriteAllBytes((Join-Path $assetDir 'app.png'), (Render-Png $logo 256))
 $images = @()

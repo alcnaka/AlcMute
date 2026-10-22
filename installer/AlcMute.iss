@@ -23,7 +23,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 SetupIconFile=..\assets\app.ico
-UninstallDisplayIcon={app}\alcmute.exe
+UninstallDisplayIcon={app}\alcmute-logo.ico
 OutputDir=..\dist
 OutputBaseFilename=AlcMute-{#AppVersion}-Setup
 Compression=lzma2
@@ -40,11 +40,12 @@ Name: "desktopicon"; Description: "デスクトップにショートカットを
 [Files]
 Source: "{#BuildDir}\alcmute.exe"; DestName: "alcmute-preflight.exe"; Flags: dontcopy noencryption
 Source: "{#BuildDir}\alcmute.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\app.ico"; DestDir: "{app}"; DestName: "alcmute-logo.ico"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
-Name: "{group}\AlcMute"; Filename: "{app}\alcmute.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\AlcMute"; Filename: "{app}\alcmute.exe"; Tasks: desktopicon
+Name: "{group}\AlcMute"; Filename: "{app}\alcmute.exe"; WorkingDir: "{app}"; IconFilename: "{app}\alcmute-logo.ico"; IconIndex: 0
+Name: "{autodesktop}\AlcMute"; Filename: "{app}\alcmute.exe"; Tasks: desktopicon; IconFilename: "{app}\alcmute-logo.ico"; IconIndex: 0
 [Registry]
 Root: HKCU; Subkey: "Software\Alcnaka\AlcMute"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
 [Code]
