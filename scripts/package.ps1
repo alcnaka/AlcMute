@@ -23,7 +23,8 @@ try {
     & $Iscc "/DAppVersion=$version" "/DBuildDir=$buildDir" 'installer/AlcMute.iss'
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
     $setupInfo=[Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path -LiteralPath "dist/AlcMute-$version-Setup.exe").Path)
-    if ($setupInfo.CompanyName -cne 'Alcnaka' -or $setupInfo.ProductName -cne 'AlcMute' -or $setupInfo.ProductVersion -cne $version) {throw 'Setup product/version mismatch'}
+    # Inno reserves space in its VERSIONINFO strings by padding with spaces.
+    if ($setupInfo.CompanyName.TrimEnd() -cne 'Alcnaka' -or $setupInfo.ProductName.TrimEnd() -cne 'AlcMute' -or $setupInfo.ProductVersion.TrimEnd() -cne $version) {throw 'Setup product/version mismatch'}
     $archive=[IO.Compression.ZipFile]::OpenRead((Join-Path $PWD "dist/AlcMute-$version-Portable.zip"))
     try {
         if (($archive.Entries.FullName | Sort-Object) -join ',' -cne 'alcmute.exe,CHANGELOG.md,README.md') {throw 'Unexpected portable ZIP contents'}
