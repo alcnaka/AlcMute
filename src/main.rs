@@ -77,7 +77,7 @@ slint::slint! {
     }
     export component Settings inherits Window {
         title: "AlcMute";
-        icon: @image-url("../assets/app.svg");
+        icon: @image-url("../assets/app.png");
         preferred-width: 640px; preferred-height: 800px;
         min-width: 480px; min-height: 420px;
         default-font-size: 15px;
@@ -249,7 +249,7 @@ slint::slint! {
         in property <string> status-text: "AlcMute - Unknown";
         in property <int> mute-state;
         in property <bool> can-toggle;
-        icon: root.mute-state == 1 ? @image-url("../assets/mic-muted.svg") : root.mute-state == 2 ? @image-url("../assets/mic-unmuted.svg") : @image-url("../assets/mic-unknown.svg");
+        icon: root.mute-state == 1 ? @image-url("../assets/mic-muted.png") : root.mute-state == 2 ? @image-url("../assets/mic-unmuted.png") : @image-url("../assets/mic-unknown.png");
         tooltip: root.status-text + (root.update-available ? " / 更新があります" : "");
         callback toggle(); callback settings(); callback about(); callback exit-requested(); callback updates();
         callback icon-clicked();
