@@ -275,28 +275,71 @@ fn resource_fields(path: &Path) -> Option<(String, String, String)> {
     if unsafe { GetFileVersionInfoW(wide.as_ptr(), 0, size, data.as_mut_ptr().cast()) } == 0 {
         return None;
     }
-    // winresource's fixed language/codepage. Unknown resources are conservatively skipped.
-    let query = |field: &str| -> Option<String> {
-        let name: Vec<u16> = format!("\\StringFileInfo\\040904b0\\{field}")
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
-        let mut ptr = std::ptr::null_mut();
-        let mut len = 0;
-        if unsafe { VerQueryValueW(data.as_ptr().cast(), name.as_ptr(), &mut ptr, &mut len) } == 0
-            || len == 0
-        {
-            return None;
+    // Read the resource's translations: winresource defaults to neutral (0000),
+    // while other releases may use an explicit language such as 0409.
+    let translation: Vec<u16> = "\\VarFileInfo\\Translation"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let mut translations = std::ptr::null_mut();
+    let mut count = 0;
+    if unsafe {
+        VerQueryValueW(
+            data.as_ptr().cast(),
+            translation.as_ptr(),
+            &mut translations,
+            &mut count,
+        )
+    } == 0
+        || translations.is_null()
+        || count == 0
+        || count % 4 != 0
+        || count > 128
+    {
+        return None;
+    }
+    let base = data.as_ptr() as usize;
+    let end = base + size as usize;
+    if (translations as usize) < base || (translations as usize).checked_add(count as usize)? > end
+    {
+        return None;
+    }
+    for index in 0..count as usize / 4 {
+        let pair = unsafe { translations.cast::<u16>().add(index * 2) };
+        let language = unsafe { std::ptr::read_unaligned(pair) };
+        let codepage = unsafe { std::ptr::read_unaligned(pair.add(1)) };
+        let query = |field: &str| -> Option<String> {
+            let name: Vec<u16> = format!("\\StringFileInfo\\{language:04x}{codepage:04x}\\{field}")
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            let mut ptr = std::ptr::null_mut();
+            let mut len = 0;
+            if unsafe { VerQueryValueW(data.as_ptr().cast(), name.as_ptr(), &mut ptr, &mut len) }
+                == 0
+                || ptr.is_null()
+                || len == 0
+            {
+                return None;
+            }
+            if (ptr as usize) < base || (ptr as usize).checked_add(len as usize * 2)? > end {
+                return None;
+            }
+            let text = unsafe { std::slice::from_raw_parts(ptr.cast::<u16>(), len as usize) };
+            if text.last() != Some(&0) {
+                return None;
+            }
+            Some(String::from_utf16_lossy(&text[..text.len() - 1]))
+        };
+        if let (Some(company), Some(product), Some(version)) = (
+            query("CompanyName"),
+            query("ProductName"),
+            query("FileVersion"),
+        ) {
+            return Some((company, product, version));
         }
-        Some(String::from_utf16_lossy(unsafe {
-            std::slice::from_raw_parts(ptr.cast::<u16>(), len as usize - 1)
-        }))
-    };
-    Some((
-        query("CompanyName")?,
-        query("ProductName")?,
-        query("FileVersion")?,
-    ))
+    }
+    None
 }
 fn owned_command(command: &str) -> bool {
     let Some(args) = arguments(command) else {

@@ -22,6 +22,16 @@ try {
     $buildDir = Join-Path $PWD 'dist/build/installer'
     & $Iscc "/DAppVersion=$version" "/DBuildDir=$buildDir" 'installer/AlcMute.iss'
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
+    $setupInfo=[Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path -LiteralPath "dist/AlcMute-$version-Setup.exe").Path)
+    if ($setupInfo.CompanyName -cne 'Alcnaka' -or $setupInfo.ProductName -cne 'AlcMute' -or $setupInfo.ProductVersion -cne $version) {throw 'Setup product/version mismatch'}
+    $archive=[IO.Compression.ZipFile]::OpenRead((Join-Path $PWD "dist/AlcMute-$version-Portable.zip"))
+    try {
+        if (($archive.Entries.FullName | Sort-Object) -join ',' -cne 'alcmute.exe,CHANGELOG.md,README.md') {throw 'Unexpected portable ZIP contents'}
+        $entry=$archive.GetEntry('alcmute.exe').Open()
+        $algorithm=[Security.Cryptography.SHA256]::Create()
+        try {$archiveHash=[BitConverter]::ToString($algorithm.ComputeHash($entry)).Replace('-','')} finally {$entry.Dispose();$algorithm.Dispose()}
+        if ($archiveHash -cne (Get-FileHash -LiteralPath 'dist/build/portable/alcmute.exe' -Algorithm SHA256).Hash) {throw 'Wrong executable in portable ZIP'}
+    } finally {$archive.Dispose()}
     $hashes = foreach ($name in @("AlcMute-$version-Setup.exe","AlcMute-$version-Portable.zip")) {
         $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $name"
