@@ -28,3 +28,9 @@ read them without external license files. Regenerate this asset with
 For packages which omit license files from their crate archive, the generator
 uses the upstream license texts in `assets/license-overrides/`; these retain
 their official source URLs. Review these texts when updating those packages.
+
+Dependency notices are embedded as a lossless zlib stream and expanded on
+request. Compression does not remove or alter their license/NOTICE contents.
+Installer builds use unmodified Inno Setup runtime components, retaining their
+original copyright and website notices. The compiler is not distributed with
+AlcMute. See https://jrsoftware.org/isinfo.php for the tool's terms.

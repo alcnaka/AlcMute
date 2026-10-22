@@ -8,6 +8,10 @@
 AppId={{D7267BA5-A7BD-46DB-A39F-47E9F7843CF6}
 AppName=AlcMute
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppVersion}
+VersionInfoCompany=Alcnaka
+VersionInfoProductName=AlcMute
+VersionInfoDescription=AlcMute Setup
 AppPublisher=Alcnaka
 AppPublisherURL=https://github.com/alcnaka/AlcMute
 DefaultDirName={localappdata}\Programs\Alcnaka\AlcMute
@@ -29,6 +33,8 @@ AppMutex=Local\Alcnaka.AlcMute.Installation
 RestartApplications=no
 CloseApplicationsFilter=alcmute.exe
 WizardStyle=modern
+[Languages]
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 [Tasks]
 Name: "desktopicon"; Description: "デスクトップにショートカットを作成する"; Flags: unchecked
 [Files]
@@ -43,12 +49,38 @@ Root: HKCU; Subkey: "Software\Alcnaka\AlcMute"; ValueType: string; ValueName: "I
 [Run]
 Filename: "{app}\alcmute.exe"; Parameters: "--background"; Flags: nowait skipifdoesntexist skipifsilent
 [Code]
+function DirectoryHasEntries(const Path: String): Boolean;
+var Entry: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Path) + '*', Entry) then begin
+    try
+      repeat
+        if (Entry.Name <> '.') and (Entry.Name <> '..') then begin
+          Result := True;
+          Break;
+        end;
+      until not FindNext(Entry);
+    finally
+      FindClose(Entry);
+    end;
+  end;
+end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var Path, RegisteredDir, SettingsDir: String; Managed: Boolean;
 begin
   Result := '';
+  Path := AddBackslash(ExpandFileName(WizardDirValue));
+  SettingsDir := AddBackslash(ExpandConstant('{localappdata}\Alcnaka\AlcMute'));
   if Pos(Lowercase(AddBackslash(ExpandConstant('{localappdata}'))),
-    Lowercase(AddBackslash(ExpandFileName(WizardDirValue)))) <> 1 then
+    Lowercase(Path)) <> 1 then
     Result := '管理者権限なしで更新するため、ユーザーのLocalAppData配下を選択してください。';
+  if Pos(Lowercase(SettingsDir), Lowercase(Path)) = 1 then
+    Result := '設定保存フォルダーとプログラムのインストール先は別にしてください。';
+  Managed := RegQueryStringValue(HKCU, 'Software\Alcnaka\AlcMute', 'InstallDir', RegisteredDir);
+  Managed := Managed and (CompareText(AddBackslash(RegisteredDir), Path) = 0);
+  if (not Managed) and DirectoryHasEntries(Path) then
+    Result := '既存のPortable版や他のファイルを上書きしないよう、空の専用フォルダーを選択してください。';
 end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 var Path: String;

@@ -92,18 +92,36 @@ pub fn helper(args: &[String]) -> Result<(), String> {
             return Err("更新先は現在のバージョンより新しくありません".into());
         }
         windows::wait_for_update_parent(pid, &install.join("alcmute.exe"))?;
+        let previous = setup
+            .parent()
+            .ok_or("Missing staging directory")?
+            .join("previous-alcmute.exe");
+        let mut backup = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&previous)
+            .map_err(|e| e.to_string())?;
+        std::io::copy(
+            &mut fs::File::open(install.join("alcmute.exe")).map_err(|e| e.to_string())?,
+            &mut backup,
+        )
+        .and_then(|_| backup.sync_all())
+        .map_err(|e| e.to_string())?;
+        drop(backup);
         let status = Command::new(&setup)
             .arg("/VERYSILENT")
             .arg("/SUPPRESSMSGBOXES")
             .arg("/NORESTART")
-            .arg(format!("/DIR={}", install.display()))
+            .arg(format!("/DIR={}", windows::normal_path(&install)?))
             .arg(format!("/LOG={}", setup.with_extension("log").display()))
             .status()
             .map_err(|e| e.to_string())?;
         if !status.success() {
             return Err(format!("インストールに失敗しました: {status}"));
         }
-        if windows::installed_version()? != version.to_string() {
+        if windows::installed_version()? != version.to_string()
+            || windows::executable_version(&install.join("alcmute.exe"))? != version.to_string()
+        {
             return Err("インストール後のバージョンを確認できませんでした".into());
         }
         Command::new(install.join("alcmute.exe"))

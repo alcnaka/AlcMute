@@ -266,7 +266,11 @@ slint::slint! {
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.as_slice() == ["--verify-licenses"] {
-        return if about::notices().is_ok() {
+        let resource_ok = std::env::current_exe()
+            .ok()
+            .and_then(|path| alcmute_core::windows::executable_version(&path).ok())
+            .is_some_and(|version| version == env!("CARGO_PKG_VERSION"));
+        return if about::notices().is_ok() && resource_ok {
             std::process::ExitCode::SUCCESS
         } else {
             std::process::ExitCode::FAILURE
