@@ -46,6 +46,18 @@ impl Updates {
         }
     }
     pub fn attach(&self, ui: &Settings) {
+        ui.set_app_version(
+            format!(
+                "{} / {}",
+                env!("CARGO_PKG_VERSION"),
+                if cfg!(feature = "installer") {
+                    "Installer"
+                } else {
+                    "Portable"
+                }
+            )
+            .into(),
+        );
         *self.window.lock().unwrap() = Some(ui.as_weak());
         let service = self.clone();
         ui.on_check_updates(move || service.check());
@@ -68,10 +80,16 @@ impl Updates {
             drop(state);
             service.refresh();
         });
-        ui.on_release_page(|| {
-            let _ = std::process::Command::new("explorer.exe")
+        let service = self.clone();
+        ui.on_release_page(move || {
+            if let Err(error) = std::process::Command::new("explorer.exe")
                 .arg(updater::RELEASES)
-                .spawn();
+                .spawn()
+            {
+                service.state.lock().unwrap().message =
+                    format!("Releaseページを開けませんでした: {error}");
+                service.refresh();
+            }
         });
         self.refresh();
     }

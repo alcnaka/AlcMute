@@ -1,22 +1,25 @@
-param([string]$TargetRoot = 'target', [string]$Iscc = 'ISCC.exe')
+param([string]$TargetRoot = 'target/distribution-build', [string]$Iscc = 'ISCC.exe')
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path $PSScriptRoot)
 try {
     $version = (cargo metadata --no-deps --locked --format-version 1 | ConvertFrom-Json).packages | Where-Object name -eq 'alcmute' | Select-Object -ExpandProperty version
     if ($LASTEXITCODE -ne 0) { throw 'metadata failed' }
     foreach ($variant in @('portable','installer')) {
-        $buildArgs = @('build','--release','--locked','--target-dir',"$TargetRoot/$variant")
+        $buildArgs = @('build','--release','--locked','--target-dir',$TargetRoot)
         if ($variant -eq 'installer') { $buildArgs += @('--features','installer') }
         & cargo @buildArgs
         if ($LASTEXITCODE -ne 0) { throw "Build failed: $variant" }
-        & "$PSScriptRoot/verify-version-info.ps1" -Executable "$TargetRoot/$variant/release/alcmute.exe"
+        & "$PSScriptRoot/verify-artifact.ps1" -Executable "$TargetRoot/release/alcmute.exe" -Distribution $variant
         if ($LASTEXITCODE -ne 0) { throw 'VERSIONINFO failed' }
+        $variantDir = Join-Path $PWD "dist/build/$variant"
+        New-Item -ItemType Directory -Path $variantDir -Force | Out-Null
+        Copy-Item -LiteralPath "$TargetRoot/release/alcmute.exe" -Destination $variantDir -Force
     }
     $stage = Join-Path $PWD 'dist/portable'
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
-    Copy-Item -LiteralPath "$TargetRoot/portable/release/alcmute.exe",'README.md','CHANGELOG.md' -Destination $stage -Force
+    Copy-Item -LiteralPath 'dist/build/portable/alcmute.exe','README.md','CHANGELOG.md' -Destination $stage -Force
     Compress-Archive -LiteralPath "$stage/alcmute.exe","$stage/README.md","$stage/CHANGELOG.md" -DestinationPath "dist/AlcMute-$version-Portable.zip" -Force
-    $buildDir = [IO.Path]::GetFullPath((Join-Path $PWD "$TargetRoot/installer/release"))
+    $buildDir = Join-Path $PWD 'dist/build/installer'
     & $Iscc "/DAppVersion=$version" "/DBuildDir=$buildDir" 'installer/AlcMute.iss'
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
     $hashes = foreach ($name in @("AlcMute-$version-Setup.exe","AlcMute-$version-Portable.zip")) {

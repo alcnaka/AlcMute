@@ -28,6 +28,8 @@ jobs:
         run: cargo test --workspace --features dev-tools --locked -- --test-threads=1
       - name: Test installer distribution
         run: cargo test --workspace --features installer --locked -- --test-threads=1
+      - name: Clippy installer distribution
+        run: cargo clippy --workspace --all-targets --features installer --locked -- -D warnings
       - name: Build
         run: cargo build --release --locked
       - name: Verify Windows VERSIONINFO
@@ -37,11 +39,13 @@ jobs:
         shell: pwsh
         run: |
           $binary = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes('target/release/alcmute.exe'))
-          foreach ($path in @('LICENSE', 'assets/dependency-licenses.txt')) {
+          foreach ($path in @('LICENSE')) {
             if (-not $binary.Contains([IO.File]::ReadAllText($path))) {
               throw "Missing embedded license text: $path"
             }
           }
+          $process = Start-Process -FilePath target/release/alcmute.exe -ArgumentList '--verify-licenses' -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Compressed license verification failed' }
           if ($binary.Contains('/alcmute/test/')) {
             throw 'Development OSC endpoints found in production binary'
           }
@@ -71,7 +75,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: distribution
           path: dist

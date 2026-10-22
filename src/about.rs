@@ -61,10 +61,21 @@ slint::slint! {
 pub fn show(slot: &Rc<RefCell<Option<About>>>) -> Result<(), String> {
     if slot.borrow().is_none() {
         let ui = About::new().map_err(|e| e.to_string())?;
-        ui.set_version(env!("CARGO_PKG_VERSION").into());
+        ui.set_version(
+            format!(
+                "{} ({})",
+                env!("CARGO_PKG_VERSION"),
+                if cfg!(feature = "installer") {
+                    "Installer"
+                } else {
+                    "Portable"
+                }
+            )
+            .into(),
+        );
         ui.set_mit_license(include_str!("../LICENSE").into());
-        // Keep the full document in static storage, never in a text widget.
-        let browser = Rc::new(RefCell::new(LicenseBrowser::new()));
+        // Decompress only when About is requested, never during resident startup.
+        let browser = Rc::new(RefCell::new(LicenseBrowser::new()?));
         ui.set_libraries(slint::ModelRc::new(slint::VecModel::from(
             browser
                 .borrow()
@@ -134,7 +145,29 @@ pub fn show(slot: &Rc<RefCell<Option<About>>>) -> Result<(), String> {
     Ok(())
 }
 
-const NOTICES: &str = include_str!("../assets/dependency-licenses.txt");
+pub fn notices() -> Result<&'static str, String> {
+    static NOTICES: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    NOTICES
+        .get_or_init(|| {
+            use std::io::Read;
+            let mut text = String::new();
+            flate2::read::ZlibDecoder::new(
+                include_bytes!(concat!(env!("OUT_DIR"), "/licenses.zlib")).as_slice(),
+            )
+            .take(16 * 1024 * 1024 + 1)
+            .read_to_string(&mut text)
+            .map_err(|e| e.to_string())?;
+            if text.len() > 16 * 1024 * 1024
+                || text.len().to_string() != env!("ALCMUTE_LICENSE_BYTES")
+            {
+                return Err("License data length mismatch".into());
+            }
+            Ok(text)
+        })
+        .as_ref()
+        .map(String::as_str)
+        .map_err(Clone::clone)
+}
 const SEPARATOR: &str = "\n========================================\n";
 
 struct LicenseBrowser {
@@ -144,14 +177,15 @@ struct LicenseBrowser {
 }
 
 impl LicenseBrowser {
-    fn new() -> Self {
-        let libraries: Vec<_> = NOTICES.split(SEPARATOR).skip(1).collect();
-        let first = libraries.first().copied().unwrap_or(NOTICES);
-        Self {
+    fn new() -> Result<Self, String> {
+        let notices = notices()?;
+        let libraries: Vec<_> = notices.split(SEPARATOR).skip(1).collect();
+        let first = libraries.first().copied().unwrap_or(notices);
+        Ok(Self {
             libraries,
             pages: pages(first),
             page: 0,
-        }
+        })
     }
 
     fn update(&self, ui: &About) {
@@ -186,7 +220,11 @@ mod tests {
 
     #[test]
     fn every_embedded_license_is_lossless_and_bounded() {
-        let browser = LicenseBrowser::new();
+        let browser = LicenseBrowser::new().unwrap();
+        assert_eq!(
+            notices().unwrap(),
+            include_str!("../assets/dependency-licenses.txt")
+        );
         assert!(browser.libraries.len() > 100);
         for library in browser.libraries {
             let chunks = pages(library);

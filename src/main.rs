@@ -114,6 +114,7 @@ slint::slint! {
         in property <bool> update-busy;
         in property <bool> update-available;
         in property <bool> update-installable;
+        in property <string> app-version;
         callback check-updates();
         callback install-update();
         callback release-page();
@@ -140,7 +141,7 @@ slint::slint! {
             VerticalBox {
                 padding: 20px; spacing: 14px;
                 Text { text: "AlcMute"; font-size: 26px; font-weight: 700; vertical-stretch: 0; }
-                Hint { text: "あるみゅーと / VRC Background Mute"; }
+                Hint { text: "あるみゅーと / VRC Background Mute　" + root.app-version; }
                 HorizontalBox {
                     Text { text: root.state; font-size: 16px; wrap: word-wrap; }
                     Button { text: "ミュート切り替え"; enabled: root.can-toggle && !root.capturing; clicked => {root.toggle();} }
@@ -216,7 +217,7 @@ slint::slint! {
                         LineEdit { text <=> root.listen; enabled: !root.capturing; }
                         Rectangle { height: 1px; background: #888; opacity: 0.25; }
                         SectionTitle { text: "管理"; }
-                        CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.update-busy; toggled => {root.update-preferences(self.checked);} }
+                        CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.update-busy && !root.capturing; toggled => {root.update-preferences(self.checked);} }
                         Hint { text: "更新確認の設定はすぐに保存されます。"; }
                         Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
                         if root.update-status != "": Hint { text: root.update-status; }
@@ -264,6 +265,13 @@ slint::slint! {
 }
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["--verify-licenses"] {
+        return if about::notices().is_ok() {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::FAILURE
+        };
+    }
     if args.first().is_some_and(|arg| arg == "--update-helper") {
         return match update_install::helper(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
