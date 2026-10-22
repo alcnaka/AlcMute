@@ -5,6 +5,7 @@ slint::slint! {
     import { VerticalBox, HorizontalBox, Button, TextEdit, ComboBox } from "std-widgets.slint";
     export component About inherits Window {
         title: "AlcMuteについて";
+        icon: @image-url("../assets/app.svg");
         preferred-width: 640px; preferred-height: 640px;
         min-width: 420px; min-height: 400px;
         default-font-size: 15px;

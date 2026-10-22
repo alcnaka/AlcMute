@@ -75,6 +75,7 @@ slint::slint! {
     }
     export component Settings inherits Window {
         title: "AlcMute";
+        icon: @image-url("../assets/app.svg");
         preferred-width: 640px; preferred-height: 800px;
         min-width: 480px; min-height: 420px;
         default-font-size: 15px;

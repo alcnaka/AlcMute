@@ -1,6 +1,6 @@
 [package]
 name = "alcmute"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.92"
 license = "MIT"
@@ -15,9 +15,11 @@ exclude = ["vendor/i-slint-backend-winit", "vendor/winit"]
 resolver = "2"
 
 [features]
+installer = ["alcmute-core/installer"]
 dev-tools = ["alcmute-core/dev-tools"]
 
 [dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 alcmute-core = { path = "crates/alcmute-core", features = ["windows-integration"] }
 slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-software", "system-tray", "unstable-winit-030"] }
 
@@ -28,6 +30,7 @@ strip = true
 panic = "abort"
 
 [build-dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 winresource = "0.1"
 
 [patch.crates-io]
