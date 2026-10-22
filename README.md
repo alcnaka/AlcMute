@@ -28,6 +28,9 @@ VRChatが非アクティブでも、ショートカットやWindowsの通知領�
 
 対応OSはWindows 10 / 11です。
 
+Windows実行ファイルの会社名は`Alcnaka`、製品名は`AlcMute`です。
+ファイルのバージョン情報からも確認できます。
+
 ## 使い方
 
 1. VRChatでOSCと「Toggle Voice」を有効にします。

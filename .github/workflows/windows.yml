@@ -28,6 +28,9 @@ jobs:
         run: cargo test --workspace --features dev-tools --locked -- --test-threads=1
       - name: Build
         run: cargo build --release --locked
+      - name: Verify Windows VERSIONINFO
+        shell: pwsh
+        run: ./scripts/verify-version-info.ps1
       - name: Verify embedded license notices
         shell: pwsh
         run: |

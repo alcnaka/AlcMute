@@ -11,6 +11,16 @@ cargo build --release --locked
 
 実行ファイルは`target/release/alcmute.exe`です。
 
+WindowsのVERSIONINFOは`build.rs`で`winresource`を使って生成します。
+文字列バージョンはCargoのversion、数値バージョンはmajor.minor.patch.0です。
+Windows SDKのリソースコンパイラーが必要です。ビルド後に次のコマンドで検証できます。
+
+```powershell
+./scripts/verify-version-info.ps1
+```
+
+CIでも会社名・製品名・説明・内部名・元ファイル名・著作権と、文字列／数値の両バージョンを検証します。
+
 ```powershell
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
