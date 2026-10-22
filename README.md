@@ -4,7 +4,13 @@
 
 **VRC Background Mute**
 
-[![#MadeWithSlint](./assets/img/MadeWithSlint-logo-light.svg#gh-light-mode-only)![#MadeWithSlint](./assets/img/MadeWithSlint-logo-dark.svg#gh-dark-mode-only)](https://slint.dev/)
+<a href="https://slint.dev/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/img/MadeWithSlint-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./assets/img/MadeWithSlint-logo-light.svg">
+    <img alt="#MadeWithSlint" src="./assets/img/MadeWithSlint-logo-light.svg" width="212" height="97">
+  </picture>
+</a>
 
 VRChatが非アクティブでも、ショートカットやWindowsの通知領域からマイクのミュートを
 切り替える、Rust製のWindows常駐アプリです。VRChat公式OSCを使用します。

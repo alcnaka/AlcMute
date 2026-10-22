@@ -8,6 +8,10 @@ AlcMuteの利用者に関わる主な変更を、このファイルに記録し�
 
 ## [Unreleased]
 
+### Fixed（修正）
+
+- READMEのSlintバッジをpicture要素で切り替える方式に変更し、ライト用・ダーク用画像の同時表示を防止。
+
 ### Changed（変更）
 
 - READMEを利用者向けに整理し、ビルド・テスト・内部構成・開発用モード・ライセンス情報の更新手順をCONTRIBUTING.mdへ移動。
