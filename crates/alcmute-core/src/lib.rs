@@ -419,6 +419,7 @@ pub struct Controller {
     manager: GlobalHotKeyManager,
     hotkey: HotKey,
     hotkey_registered: bool,
+    shortcut_warning: Option<String>,
     runtime: Option<Runtime>,
     status: Arc<Mutex<Status>>,
     notify: Notify,
@@ -460,18 +461,25 @@ impl Controller {
         }
         let manager = GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
         let hotkey: HotKey = config.shortcut.parse()?;
-        manager
-            .register(hotkey)
-            .map_err(|e| format!("Shortcut is unavailable: {e}"))?;
+        let shortcut_warning = manager.register(hotkey).err().map(|error| {
+            format!("ショートカットを登録できないため無効です。別のキーに変更して保存してください: {error}")
+        });
+        if let Some(warning) = &shortcut_warning {
+            options.log(warning);
+        }
+        let hotkey_registered = shortcut_warning.is_none();
         let status = Arc::new(Mutex::new(Status::default()));
         let runtime = runtime(&config, status.clone(), notify.clone(), &options)?;
-        install_handler(&runtime, hotkey);
+        if hotkey_registered {
+            install_handler(&runtime, hotkey);
+        }
         Ok(Self {
             config,
             options,
             manager,
             hotkey,
-            hotkey_registered: true,
+            hotkey_registered,
+            shortcut_warning,
             runtime: Some(runtime),
             status,
             notify,
@@ -479,6 +487,9 @@ impl Controller {
             #[cfg(test)]
             faults: ApplyFaults::default(),
         })
+    }
+    pub fn shortcut_warning(&self) -> Option<&str> {
+        self.shortcut_warning.as_deref()
     }
     pub fn status(&self) -> Status {
         self.status.lock().unwrap().clone()
@@ -614,6 +625,7 @@ impl Controller {
             self.runtime = Some(candidate);
             self.status = candidate_status;
         }
+        self.shortcut_warning = None;
         self.config = config;
         self.hotkey = hotkey;
         self.hotkey_registered = true;
@@ -681,14 +693,16 @@ impl Controller {
     }
     pub fn end_shortcut_capture(&mut self) -> Result<()> {
         self.manager.end_capture();
-        if !self.hotkey_registered {
+        if !self.hotkey_registered && self.shortcut_warning.is_none() {
             self.manager
                 .register(self.hotkey)
                 .map_err(|e| format!("ショートカットの再登録に失敗しました: {e}"))?;
             self.hotkey_registered = true;
         }
-        if let Some(runtime) = &self.runtime {
-            install_handler(runtime, self.hotkey);
+        if self.hotkey_registered {
+            if let Some(runtime) = &self.runtime {
+                install_handler(runtime, self.hotkey);
+            }
         }
         Ok(())
     }
@@ -877,6 +891,44 @@ mod tests {
         options.log("test"); // best-effort logging must not panic
         fs::remove_file(dir).unwrap();
     }
+    #[test]
+    fn conflicting_shortcut_starts_without_registration_and_can_be_changed() {
+        let dir = std::env::temp_dir().join(format!("alcmute-conflict-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let config = Config {
+            listen: free_address(),
+            target: free_address(),
+            shortcut: "Ctrl+Alt+Shift+F20".into(),
+            ..Default::default()
+        };
+        let owner = GlobalHotKeyManager::new().unwrap();
+        let key = config.shortcut.parse().unwrap();
+        owner.register(key).unwrap();
+        fs::write(dir.join("settings.toml"), toml::to_string(&config).unwrap()).unwrap();
+        let mut core = Controller::new(
+            Options {
+                data_dir: dir.clone(),
+                benchmark: true,
+            },
+            Arc::new(|_| {}),
+        )
+        .unwrap();
+        assert!(!core.hotkey_registered);
+        assert!(core.shortcut_warning().is_some());
+        assert!(core.can_toggle());
+        core.begin_shortcut_capture().unwrap();
+        core.end_shortcut_capture().unwrap();
+        assert!(!core.hotkey_registered);
+        let mut changed = config;
+        changed.shortcut = "Ctrl+Alt+Shift+F19".into();
+        core.apply(changed).unwrap();
+        assert!(core.hotkey_registered);
+        assert!(core.shortcut_warning().is_none());
+        drop(core);
+        owner.unregister(key).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     fn free_address() -> String {
         UdpSocket::bind("127.0.0.1:0")
             .unwrap()

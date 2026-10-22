@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "alcmute"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "alcmute-core",
  "slint",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "alcmute-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "global-hotkey",
  "rosc",

@@ -405,7 +405,14 @@ fn run(options: Options) -> Result<(), String> {
                     ui.set_can_toggle(core.can_toggle());
                     set_saved_config(ui, &core.config);
                 }
-                ui.set_message("".into());
+                ui.set_message(
+                    controller
+                        .borrow()
+                        .as_ref()
+                        .and_then(|core| core.shortcut_warning())
+                        .unwrap_or("")
+                        .into(),
+                );
                 if let Err(error) = ui.show() {
                     report_error(&options, "設定画面を表示できません", &error.to_string());
                 } else {
@@ -545,10 +552,9 @@ fn run(options: Options) -> Result<(), String> {
     tray.show().map_err(|e| e.to_string())?;
     options.marker("ready");
     if !options.benchmark
-        && controller
-            .borrow()
-            .as_ref()
-            .is_some_and(|core| core.config.show_settings_on_startup)
+        && controller.borrow().as_ref().is_some_and(|core| {
+            core.config.show_settings_on_startup || core.shortcut_warning().is_some()
+        })
     {
         startup_show();
     }

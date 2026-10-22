@@ -8,6 +8,12 @@ AlcMuteの利用者に関わる主な変更を、このファイルに記録し�
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-23
+
+### Fixed（修正）
+
+- ショートカットが他のアプリと競合しても未登録のまま起動し、設定画面でキーを変更できるよう修正。
+
 ## [0.2.1] - 2026-10-22
 
 ### Fixed（修正）
@@ -68,7 +74,8 @@ AlcMute（あるみゅーと / VRC Background Mute）の初回リリース。
 - 異なるDPIのモニター間でのウィンドウ移動・描画への対策。
 - Windows 10 / 11のx64向けポータブル版ZIPによる配布。
 
-[Unreleased]: https://github.com/alcnaka/AlcMute/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/alcnaka/AlcMute/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/alcnaka/AlcMute/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/alcnaka/AlcMute/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/alcnaka/AlcMute/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/alcnaka/AlcMute/releases/tag/v0.1.0
