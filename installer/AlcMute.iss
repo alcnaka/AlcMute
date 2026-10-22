@@ -47,8 +47,6 @@ Name: "{group}\AlcMute"; Filename: "{app}\alcmute.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\AlcMute"; Filename: "{app}\alcmute.exe"; Tasks: desktopicon
 [Registry]
 Root: HKCU; Subkey: "Software\Alcnaka\AlcMute"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
-[Run]
-Filename: "{app}\alcmute.exe"; Parameters: "--background"; Flags: nowait skipifdoesntexist skipifsilent
 [Code]
 function DirectoryHasEntries(const Path: String): Boolean;
 var Entry: TFindRec;
@@ -108,9 +106,15 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var Code: Integer;
 begin
-  if CurStep = ssPostInstall then
+  if CurStep = ssPostInstall then begin
+    { [Run] entries execute BEFORE ssPostInstall. Start the app only after migration. }
     if not Exec(ExpandConstant('{app}\alcmute.exe'), '--install-migrate', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       RaiseException('自動起動の移行に失敗しました。既存の登録を確認し、AlcMuteのログを参照してください。');
+    { Silent updates are restarted by the update helper after verification. }
+    if not WizardSilent then
+      if not Exec(ExpandConstant('{app}\alcmute.exe'), '--background', '', SW_HIDE, ewNoWait, Code) then
+        MsgBox('インストールは完了しましたが、AlcMuteを起動できませんでした。スタートメニューから起動してください。', mbError, MB_OK);
+  end;
 end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var Dir: String; Code: Integer;
