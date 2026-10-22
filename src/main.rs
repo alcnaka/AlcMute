@@ -4,6 +4,8 @@ use slint::winit_030::WinitWindowAccessor;
 use slint::ComponentHandle;
 mod about;
 mod shortcut;
+mod update_install;
+mod updates;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 slint::slint! {
     import { VerticalBox, HorizontalBox, LineEdit, Button, CheckBox, ScrollView } from "std-widgets.slint";
@@ -84,6 +86,7 @@ slint::slint! {
         in-out property <string> shortcut;
         in-out property <string> shortcut-label;
         in-out property <bool> autostart;
+        in property <bool> autostart-available;
         in-out property <bool> show-settings-on-startup: true;
         in-out property <int> tray-double-click-action;
         out property <bool> double-click-toggle-selected: toggle-choice.checked;
@@ -106,6 +109,15 @@ slint::slint! {
         in property <bool> save-ok;
         in property <string> state;
         in property <string> message;
+        in-out property <bool> auto-check-updates;
+        in property <string> update-status;
+        in property <bool> update-busy;
+        in property <bool> update-available;
+        in property <bool> update-installable;
+        callback check-updates();
+        callback install-update();
+        callback release-page();
+        callback update-preferences(bool);
         callback save(string, string, string, bool);
         callback toggle();
         callback dismiss();
@@ -175,16 +187,18 @@ slint::slint! {
                         SectionTitle { text: "起動"; }
                         HorizontalBox {
                             FieldLabel { text: "Windowsサインイン時"; horizontal-stretch: 0; }
-                            ResetButton { setting-name: "自動起動"; enabled: !root.capturing; clicked => {root.reset-field(3);} }
+                            ResetButton { setting-name: "自動起動"; enabled: !root.capturing && root.autostart-available; clicked => {root.reset-field(3);} }
                             Rectangle { horizontal-stretch: 1; }
                         }
-                        CheckBox { text: "Windowsサインイン時に起動"; checked <=> root.autostart; enabled: !root.capturing; }
+                        CheckBox { text: "Windowsサインイン時に起動"; checked <=> root.autostart; enabled: !root.capturing && root.autostart-available; }
+                        if !root.autostart-available: Hint { text: "インストーラー版でのみ利用できます。"; }
                         HorizontalBox {
                             FieldLabel { text: "起動時の画面"; horizontal-stretch: 0; }
                             ResetButton { setting-name: "起動時の表示"; enabled: !root.capturing; clicked => {root.reset-field(5);} }
                             Rectangle { horizontal-stretch: 1; }
                         }
-                        CheckBox { text: "起動時に設定ウィンドウを表示する"; checked <=> root.show-settings-on-startup; enabled: !root.capturing; }
+                        CheckBox { text: "手動起動時に設定ウィンドウを表示する"; checked <=> root.show-settings-on-startup; enabled: !root.capturing; }
+                        Hint { text: "Windowsサインイン時と更新後は画面を表示せず常駐します。"; }
                         Rectangle { height: 1px; background: #888; opacity: 0.25; }
                         SectionTitle { text: "OSC接続"; }
                         Hint { text: "VRChatと通信するアドレスです。通常は初期値のままで使用できます。"; }
@@ -202,6 +216,12 @@ slint::slint! {
                         LineEdit { text <=> root.listen; enabled: !root.capturing; }
                         Rectangle { height: 1px; background: #888; opacity: 0.25; }
                         SectionTitle { text: "管理"; }
+                        CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.update-busy; toggled => {root.update-preferences(self.checked);} }
+                        Hint { text: "更新確認の設定はすぐに保存されます。"; }
+                        Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
+                        if root.update-status != "": Hint { text: root.update-status; }
+                        if root.update-available && root.update-installable: Button { text: "ダウンロードして更新"; enabled: !root.update-busy && !root.capturing; clicked => {root.install-update();} }
+                        Button { text: "GitHub Releasesを開く"; clicked => {root.release-page();} }
                         Button { text: "AlcMuteについて"; enabled: !root.capturing; clicked => {root.about();} }
                         Hint { text: "設定ファイル：\n" + root.config-path; }
                         Button { text: "すべての設定を初期化"; enabled: !root.capturing; clicked => {root.reset-all();} }
@@ -224,23 +244,35 @@ slint::slint! {
         }
     }
     export component Tray inherits SystemTrayIcon {
+        in property <bool> update-available;
         in property <string> status-text: "AlcMute - Unknown";
         in property <int> mute-state;
         in property <bool> can-toggle;
         icon: root.mute-state == 1 ? @image-url("../assets/mic-muted.svg") : root.mute-state == 2 ? @image-url("../assets/mic-unmuted.svg") : @image-url("../assets/mic-unknown.svg");
-        tooltip: root.status-text;
-        callback toggle(); callback settings(); callback about(); callback exit-requested();
+        tooltip: root.status-text + (root.update-available ? " / 更新があります" : "");
+        callback toggle(); callback settings(); callback about(); callback exit-requested(); callback updates();
         callback icon-clicked();
         clicked => { root.icon-clicked(); }
         Menu {
             MenuItem { title: "ミュート切り替え"; enabled: root.can-toggle; activated => { root.toggle(); } }
             MenuItem { title: "設定"; activated => { root.settings(); } }
+            MenuItem { title: root.update-available ? "更新があります" : "アップデートを確認"; activated => {root.updates();} }
             MenuItem { title: "AlcMuteについて"; activated => { root.about(); } }
             MenuItem { title: "終了"; activated => { root.exit-requested(); } }
         }
     }
 }
 fn main() -> std::process::ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--update-helper") {
+        return match update_install::helper(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                Options::default().log(&error);
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     let options = match Options::from_args() {
         Ok(options) => options,
         Err(error) => {
@@ -249,13 +281,44 @@ fn main() -> std::process::ExitCode {
         }
     };
     options.install_panic_log();
+    let background = std::env::args().any(|arg| arg == "--background");
+    let maintenance = if std::env::args().any(|arg| arg == "--install-migrate") {
+        Some(true)
+    } else if std::env::args().any(|arg| arg == "--uninstall-cleanup") {
+        Some(false)
+    } else {
+        None
+    };
+    if let Some(install) = maintenance {
+        let _maintenance_instance = match alcmute_core::windows::SingleInstance::acquire() {
+            Ok(Some(instance)) => instance,
+            _ => {
+                options.log("インストール・アンインストールの前に、起動中のAlcMute（旧Portable版を含む）を終了してください。");
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+        let result = if install {
+            alcmute_core::windows::migrate_startup(&options)
+        } else {
+            alcmute_core::windows::uninstall_cleanup(&options)
+        };
+        return match result {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                options.log(&error);
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     let _instance = match alcmute_core::windows::SingleInstance::acquire() {
         Ok(Some(instance)) => instance,
         Ok(None) => {
-            alcmute_core::windows::show_error(
-                "AlcMuteは起動済みです",
-                "通知領域のAlcMuteアイコンから設定画面を開いてください。",
-            );
+            if !background {
+                if let Err(error) = alcmute_core::windows::ipc::request_settings() {
+                    report_error(&options, "起動済みのAlcMuteに接続できません", &error);
+                    return std::process::ExitCode::FAILURE;
+                }
+            }
             return std::process::ExitCode::SUCCESS;
         }
         Err(error) => {
@@ -263,6 +326,19 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
+    let _installer_guard = match alcmute_core::windows::SingleInstance::installer_guard() {
+        Ok(Some(guard)) => guard,
+        _ => {
+            report_startup_error(&options, "インストール用の排他制御を取得できませんでした");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    if alcmute_core::settings_store::recovery_available(&options) && alcmute_core::windows::confirm(
+        "設定ファイルの復旧",
+        &format!("{} が破損しています。正常なsettings.toml.bakから復旧しますか？\n破損したファイルは別名で保全します。",options.data_dir.join("settings.toml").display())
+    ) {
+        if let Err(error)=alcmute_core::settings_store::recover(&options) {report_startup_error(&options,&error);return std::process::ExitCode::FAILURE;}
+    }
     if let Err(error) = run(options.clone()) {
         report_startup_error(&options, &error);
         return std::process::ExitCode::FAILURE;
@@ -286,6 +362,7 @@ fn run(options: Options) -> Result<(), String> {
     let tray = Tray::new().map_err(|e| e.to_string())?;
     // Lazy creation avoids paying for settings controls until the first use.
     let settings: Rc<RefCell<Option<Settings>>> = Rc::new(RefCell::new(None));
+    let updates = updates::Updates::new(options.clone(), tray.as_weak());
     let controller: Rc<RefCell<Option<Controller>>> = Rc::new(RefCell::new(None));
     let options_for_events = options.clone();
     let weak_tray = tray.as_weak();
@@ -301,6 +378,7 @@ fn run(options: Options) -> Result<(), String> {
         })
     };
     let show: Rc<dyn Fn()> = {
+        let updates = updates.clone();
         let controller = controller.clone();
         let settings = settings.clone();
         let options = options.clone();
@@ -315,6 +393,8 @@ fn run(options: Options) -> Result<(), String> {
                     }
                 };
                 install_editing(&ui, controller.clone(), options.clone());
+                updates.attach(&ui);
+                ui.set_autostart_available(alcmute_core::windows::startup_available(&options));
                 let show_about = show_about.clone();
                 ui.on_about(move || show_about());
                 let weak = ui.as_weak();
@@ -545,6 +625,22 @@ fn run(options: Options) -> Result<(), String> {
         }
     });
     let startup_show = show.clone();
+    let update_show = show.clone();
+    let update_check = updates.clone();
+    tray.on_updates(move || {
+        update_show();
+        update_check.check();
+    });
+    let _activation = alcmute_core::windows::ipc::ActivationServer::start(move |reply| {
+        let _ = slint::invoke_from_event_loop(move || {
+            HANDLER.with(|handler| {
+                if let Some(handler) = handler.borrow().as_ref() {
+                    handler(Event::Show);
+                }
+            });
+            reply.acknowledge();
+        });
+    })?;
     tray.on_settings(move || show());
     tray.on_about(move || show_about());
     tray.on_exit_requested(|| {
@@ -553,12 +649,14 @@ fn run(options: Options) -> Result<(), String> {
     tray.show().map_err(|e| e.to_string())?;
     options.marker("ready");
     if !options.benchmark
+        && !std::env::args().any(|arg| arg == "--background")
         && controller.borrow().as_ref().is_some_and(|core| {
             core.config.show_settings_on_startup || core.shortcut_warning().is_some()
         })
     {
         startup_show();
     }
+    updates.start();
     let result = slint::run_event_loop_until_quit().map_err(|e| e.to_string());
     controller.borrow_mut().take();
     HANDLER.with(|handler| handler.borrow_mut().take());
@@ -862,6 +960,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
             match result {
                 Ok(()) => {
                     fill_config(&ui, &Config::default());
+                    ui.invoke_update_preferences(true);
                     ui.set_message("保存済み設定を削除し、自動起動を解除しました".into());
                     options.marker("reset");
                 }

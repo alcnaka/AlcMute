@@ -25,6 +25,7 @@ OutputBaseFilename=AlcMute-{#AppVersion}-Setup
 Compression=lzma2
 SolidCompression=yes
 CloseApplications=yes
+AppMutex=Local\Alcnaka.AlcMute.Installation
 RestartApplications=no
 CloseApplicationsFilter=alcmute.exe
 WizardStyle=modern
@@ -40,8 +41,15 @@ Name: "{autodesktop}\AlcMute"; Filename: "{app}\alcmute.exe"; Tasks: desktopicon
 [Registry]
 Root: HKCU; Subkey: "Software\Alcnaka\AlcMute"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
 [Run]
-Filename: "{app}\alcmute.exe"; Parameters: "--background"; Flags: nowait skipifdoesntexist
+Filename: "{app}\alcmute.exe"; Parameters: "--background"; Flags: nowait skipifdoesntexist skipifsilent
 [Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if Pos(Lowercase(AddBackslash(ExpandConstant('{localappdata}'))),
+    Lowercase(AddBackslash(ExpandFileName(WizardDirValue)))) <> 1 then
+    Result := '管理者権限なしで更新するため、ユーザーのLocalAppData配下を選択してください。';
+end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 var Path: String;
 begin
@@ -60,18 +68,14 @@ var Code: Integer;
 begin
   if CurStep = ssPostInstall then
     if not Exec(ExpandConstant('{app}\alcmute.exe'), '--install-migrate', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
-      MsgBox('自動起動の移行に失敗しました。既存の登録を確認し、AlcMuteのログを参照してください。', mbError, MB_OK);
-end;
-function InitializeUninstall(): Boolean;
-var Code: Integer;
-begin
-  Result := Exec(ExpandConstant('{app}\alcmute.exe'), '--uninstall-cleanup', '', SW_HIDE, ewWaitUntilTerminated, Code);
-  Result := Result and (Code = 0);
-  if not Result then MsgBox('AlcMuteを終了してから再試行してください。自動起動の解除に失敗しました。', mbError, MB_OK);
+      RaiseException('自動起動の移行に失敗しました。既存の登録を確認し、AlcMuteのログを参照してください。');
 end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var Dir: String;
+var Dir: String; Code: Integer;
 begin
+  if CurUninstallStep = usUninstall then
+    if not Exec(ExpandConstant('{app}\alcmute.exe'), '--uninstall-cleanup', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      RaiseException('自動起動を解除できませんでした。AlcMuteを終了して再試行してください。');
   if CurUninstallStep = usPostUninstall then
     if RegQueryStringValue(HKCU, 'Software\Alcnaka\AlcMute', 'InstallDir', Dir) and
       (CompareText(RemoveBackslashUnlessRoot(Dir), RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) = 0) then

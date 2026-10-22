@@ -49,7 +49,7 @@ fn name(suffix: &str) -> Result<Vec<u16>> {
             .collect(),
     )
 }
-fn sid_string() -> Result<String> {
+pub(super) fn sid_string() -> Result<String> {
     let hex = current_user_id()?;
     let bytes = (0..hex.len())
         .step_by(2)
@@ -68,6 +68,15 @@ fn sid_string() -> Result<String> {
     Ok(result)
 }
 fn event(suffix: &str) -> Result<Arc<Event>> {
+    secured_object(suffix, |attributes, name| unsafe {
+        CreateEventW(attributes, 0, 0, name)
+    })
+}
+fn secured_object(
+    suffix: &str,
+    create: impl FnOnce(*const SECURITY_ATTRIBUTES, *const u16) -> HANDLE,
+) -> Result<Arc<Event>> {
+    let object_name = name(suffix)?;
     let sddl: Vec<u16> = format!("D:P(A;;GA;;;{})", sid_string()?)
         .encode_utf16()
         .chain(Some(0))
@@ -89,7 +98,7 @@ fn event(suffix: &str) -> Result<Arc<Event>> {
         lpSecurityDescriptor: descriptor,
         bInheritHandle: 0,
     };
-    let handle = unsafe { CreateEventW(&attributes, 0, 0, name(suffix)?.as_ptr()) };
+    let handle = create(&attributes, object_name.as_ptr());
     unsafe {
         LocalFree(descriptor);
     }
@@ -106,11 +115,29 @@ impl Reply {
     }
 }
 pub struct ActivationServer {
+    _owner: Arc<Event>,
     stop: Arc<Event>,
     worker: Option<JoinHandle<()>>,
 }
 impl ActivationServer {
     pub fn start(callback: impl Fn(Reply) + Send + 'static) -> Result<Self> {
+        use windows_sys::Win32::{
+            Foundation::INVALID_HANDLE_VALUE,
+            System::Memory::{
+                CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, FILE_MAP_WRITE, PAGE_READWRITE,
+            },
+        };
+        let owner = secured_object("ActivationOwner", |attributes, name| unsafe {
+            CreateFileMappingW(INVALID_HANDLE_VALUE, attributes, PAGE_READWRITE, 0, 4, name)
+        })?;
+        let view = unsafe { MapViewOfFile(owner.handle(), FILE_MAP_WRITE, 0, 0, 4) };
+        if view.Value.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        unsafe {
+            std::ptr::write_volatile(view.Value.cast::<u32>(), std::process::id());
+            UnmapViewOfFile(view);
+        }
         let request = event("ShowSettings")?;
         let ack = event("ShowSettingsAck")?;
         let stop = event("StopActivation")?;
@@ -126,6 +153,7 @@ impl ActivationServer {
             }
         });
         Ok(Self {
+            _owner: owner,
             stop,
             worker: Some(worker),
         })
@@ -164,19 +192,28 @@ pub fn request_settings() -> Result<()> {
         }
         thread::sleep(Duration::from_millis(25));
     };
-    // A user-initiated second launch can transfer foreground permission to an
-    // already-created (including hidden/minimized) settings window.
+    // Transfer foreground permission even before the lazy window exists.
+    // The PID is published in a mapping with the same current-user-only DACL.
     unsafe {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId,
+        use windows_sys::Win32::{
+            System::Memory::{MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ},
+            UI::WindowsAndMessaging::AllowSetForegroundWindow,
         };
-        let title: Vec<u16> = "AlcMute".encode_utf16().chain(Some(0)).collect();
-        let window = FindWindowW(std::ptr::null(), title.as_ptr());
-        let mut pid = 0;
-        GetWindowThreadProcessId(window, &mut pid);
-        if pid != 0 {
-            AllowSetForegroundWindow(pid);
+        let raw = OpenFileMappingW(FILE_MAP_READ, 0, name("ActivationOwner")?.as_ptr());
+        if raw.is_null() {
+            return Err("Activation owner is unavailable".into());
         }
+        let mapping = Event(raw as usize);
+        let view = MapViewOfFile(mapping.handle(), FILE_MAP_READ, 0, 0, 4);
+        if view.Value.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let pid = std::ptr::read_volatile(view.Value.cast::<u32>());
+        UnmapViewOfFile(view);
+        if pid == 0 {
+            return Err("Invalid activation owner".into());
+        }
+        AllowSetForegroundWindow(pid);
     }
     unsafe {
         windows_sys::Win32::System::Threading::ResetEvent(ack.handle());

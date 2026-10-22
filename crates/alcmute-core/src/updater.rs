@@ -276,6 +276,13 @@ pub fn stage(release: &Release, dir: &Path) -> Result<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "Opt-in external GitHub HTTPS smoke test"]
+    fn github_https_smoke() {
+        let release = fetch_latest().unwrap().unwrap();
+        assert!(release.version().is_ok());
+        assert!(!release.draft && !release.prerelease);
+    }
     fn release() -> Release {
         Release {
             tag_name: "v0.3.1".into(),

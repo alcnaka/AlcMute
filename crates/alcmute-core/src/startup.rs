@@ -147,7 +147,7 @@ pub fn set_startup(options: &Options, enabled: bool) -> Result<()> {
     let previous = startup_snapshot(options)?;
     // Never remove a different product's/portable executable's registration.
     if previous.as_deref().is_some_and(|command| {
-        expected_command(options).as_deref() != Ok(command) && !owned_command(command)
+        expected_command(options).as_deref() != Ok(command) && !owned_entry(NAME, command)
     }) {
         return Err("既存のAlcMute登録を安全に識別できません。変更しませんでした。".into());
     }
@@ -266,6 +266,38 @@ fn owned_command(command: &str) -> bool {
     // Legacy binaries without VERSIONINFO require both a known settings argument and PoC location.
     known_data && known_poc
 }
+fn owned_entry(name: &str, command: &str) -> bool {
+    if owned_command(command) {
+        return true;
+    }
+    if !matches!(name, NAME | LEGACY_STARTUP_NAME) {
+        return false;
+    }
+    let Some(args) = arguments(command) else {
+        return false;
+    };
+    let Some(path) = args.first().map(Path::new) else {
+        return false;
+    };
+    let filename = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    if !path.is_absolute()
+        || !matches!(
+            filename.as_str(),
+            "alcmute.exe" | "poc-slint.exe" | "poc-slint-tray.exe"
+        )
+    {
+        return false;
+    }
+    // Known registry name + expected executable + explicit AlcMute settings
+    // location is independent evidence for older releases without VERSIONINFO.
+    data_directory(&args).is_some_and(|dir| {
+        dir == crate::migration::default_directory() || dir == crate::migration::legacy_directory()
+    })
+}
 pub fn migrate_startup(options: &Options) -> Result<()> {
     require_managed(options)?;
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -283,7 +315,7 @@ pub fn migrate_startup(options: &Options) -> Result<()> {
         let Ok(command) = key.get_value::<String, _>(&name) else {
             continue;
         };
-        if owned_command(&command) {
+        if owned_entry(&name, &command) {
             recognized.push((name, value, command));
         } else if name == NAME || name == LEGACY_STARTUP_NAME {
             options.log(&format!(
@@ -304,7 +336,10 @@ pub fn migrate_startup(options: &Options) -> Result<()> {
         .find(|(name, _, _)| name == NAME)
         .unwrap_or(&recognized[0]);
     let args = arguments(&selected.2).ok_or("Invalid startup command")?;
-    let dir = data_directory(&args).unwrap_or_else(|| options.data_dir.clone());
+    let mut dir = data_directory(&args).unwrap_or_else(|| options.data_dir.clone());
+    if dir == crate::migration::legacy_directory() {
+        dir = crate::migration::default_directory();
+    }
     let command = startup_command(&std::env::current_exe().map_err(|e| e.to_string())?, &dir)?;
     let approvals: Vec<_> = recognized
         .iter()

@@ -175,6 +175,49 @@ pub fn wait_for_update_parent(pid: u32, expected: &std::path::Path) -> Result<()
     }
     Ok(())
 }
+pub fn create_private_directory(path: &std::path::Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::{
+        Foundation::LocalFree,
+        Security::{
+            Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW,
+            SECURITY_ATTRIBUTES,
+        },
+        Storage::FileSystem::CreateDirectoryW,
+    };
+    let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let sddl: Vec<u16> = format!("D:P(A;OICI;GA;;;{})", ipc::sid_string()?)
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let mut descriptor = std::ptr::null_mut();
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            1,
+            &mut descriptor,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: descriptor,
+        bInheritHandle: 0,
+    };
+    let success = unsafe { CreateDirectoryW(path.as_ptr(), &attributes) };
+    let error = std::io::Error::last_os_error();
+    unsafe {
+        LocalFree(descriptor);
+    }
+    if success == 0 {
+        Err(error.to_string())
+    } else {
+        Ok(())
+    }
+}
 #[cfg_attr(
     test,
     expect(dead_code, reason = "Live VRChat monitoring is disabled in unit tests")

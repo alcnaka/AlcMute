@@ -518,7 +518,7 @@ impl Controller {
             || self.runtime.is_none();
         let temp = self.options.data_dir.join("settings.pending.toml");
         let serialized = toml::to_string_pretty(&config).map_err(|e| e.to_string())?;
-        if let Err(error) = fs::write(&temp, serialized) {
+        if let Err(error) = settings_store::write_pending(&temp, serialized.as_bytes()) {
             let mut failure = ApplyError::from(format!("Cannot prepare settings: {error}"));
             cleanup_pending(&temp, &mut failure);
             return Err(failure);

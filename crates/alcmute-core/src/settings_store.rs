@@ -1,5 +1,11 @@
 use crate::{Config, Options, Result};
 use std::{fs, io::Write, path::Path};
+pub(crate) fn write_pending(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut file = fs::File::create(path).map_err(|e| e.to_string())?;
+    file.write_all(bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|e| e.to_string())
+}
 pub fn replace(source: &Path, destination: &Path) -> Result<()> {
     #[cfg(feature = "windows-integration")]
     {
