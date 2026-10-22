@@ -57,6 +57,9 @@ jobs:
       - name: Build distribution packages
         shell: pwsh
         run: ./scripts/package.ps1 -Iscc "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+      - name: Verify installer preflight
+        shell: pwsh
+        run: ./scripts/verify-install-preflight.ps1 -Executable dist/build/installer/alcmute.exe
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: distribution

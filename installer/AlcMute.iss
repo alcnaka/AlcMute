@@ -38,6 +38,7 @@ Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 [Tasks]
 Name: "desktopicon"; Description: "デスクトップにショートカットを作成する"; Flags: unchecked
 [Files]
+Source: "{#BuildDir}\alcmute.exe"; DestName: "alcmute-preflight.exe"; Flags: dontcopy noencryption
 Source: "{#BuildDir}\alcmute.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -67,7 +68,7 @@ begin
   end;
 end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var Path, RegisteredDir, SettingsDir: String; Managed: Boolean;
+var Path, RegisteredDir, SettingsDir: String; Managed: Boolean; Code: Integer;
 begin
   Result := '';
   Path := AddBackslash(ExpandFileName(WizardDirValue));
@@ -81,6 +82,15 @@ begin
   Managed := Managed and (CompareText(AddBackslash(RegisteredDir), Path) = 0);
   if (not Managed) and DirectoryHasEntries(Path) then
     Result := '既存のPortable版や他のファイルを上書きしないよう、空の専用フォルダーを選択してください。';
+  if Result <> '' then Exit;
+  { Use the same per-user mutex as older Portable versions, before copying files. }
+  ExtractTemporaryFile('alcmute-preflight.exe');
+  if not Exec(ExpandConstant('{tmp}\alcmute-preflight.exe'), '--check-install-ready', '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    Result := 'AlcMuteの起動状態を確認できませんでした。セットアップを再実行してください。'
+  else if Code = 2 then
+    Result := 'AlcMuteが起動中です。旧Portable版を含むAlcMuteをトレイメニューから終了して、再試行してください。'
+  else if Code <> 0 then
+    Result := 'AlcMuteの起動状態を確認できませんでした。ほかのAlcMuteを終了して再試行してください。';
 end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 var Path: String;

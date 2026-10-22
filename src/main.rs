@@ -265,6 +265,14 @@ slint::slint! {
 }
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Installer preflight: no settings, OSC, startup registry, or UI initialization.
+    if args.as_slice() == ["--check-install-ready"] {
+        return match alcmute_core::windows::SingleInstance::acquire() {
+            Ok(Some(_instance)) => std::process::ExitCode::SUCCESS,
+            Ok(None) => std::process::ExitCode::from(2),
+            Err(_) => std::process::ExitCode::FAILURE,
+        };
+    }
     if args.as_slice() == ["--verify-licenses"] {
         let resource_ok = std::env::current_exe()
             .ok()
