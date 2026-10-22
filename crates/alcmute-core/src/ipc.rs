@@ -99,11 +99,12 @@ fn secured_object(
         bInheritHandle: 0,
     };
     let handle = create(&attributes, object_name.as_ptr());
+    let error = std::io::Error::last_os_error();
     unsafe {
         LocalFree(descriptor);
     }
     if handle.is_null() {
-        return Err(std::io::Error::last_os_error().to_string());
+        return Err(error.to_string());
     }
     Ok(Arc::new(Event(handle as usize)))
 }
@@ -116,11 +117,15 @@ impl Reply {
 }
 pub struct ActivationServer {
     _owner: Arc<Event>,
+    _client_gate: Arc<Event>,
     stop: Arc<Event>,
     worker: Option<JoinHandle<()>>,
 }
 impl ActivationServer {
     pub fn start(callback: impl Fn(Reply) + Send + 'static) -> Result<Self> {
+        let client_gate = secured_object("ActivationGate", |attributes, name| unsafe {
+            windows_sys::Win32::System::Threading::CreateMutexW(attributes, 0, name)
+        })?;
         use windows_sys::Win32::{
             Foundation::INVALID_HANDLE_VALUE,
             System::Memory::{
@@ -154,6 +159,7 @@ impl ActivationServer {
         });
         Ok(Self {
             _owner: owner,
+            _client_gate: client_gate,
             stop,
             worker: Some(worker),
         })
@@ -191,6 +197,34 @@ pub fn request_settings() -> Result<()> {
             return Err("起動済みのAlcMuteが応答しません。トレイから設定を開くか、終了して再起動してください。".into());
         }
         thread::sleep(Duration::from_millis(25));
+    };
+    struct ClientGuard(Event);
+    impl Drop for ClientGuard {
+        fn drop(&mut self) {
+            unsafe {
+                windows_sys::Win32::System::Threading::ReleaseMutex(self.0.handle());
+            }
+        }
+    }
+    let _client_guard = unsafe {
+        use windows_sys::Win32::{
+            Foundation::WAIT_ABANDONED_0,
+            System::Threading::{OpenMutexW, MUTEX_MODIFY_STATE},
+        };
+        let raw = OpenMutexW(
+            SYNCHRONIZATION_SYNCHRONIZE | MUTEX_MODIFY_STATE,
+            0,
+            name("ActivationGate")?.as_ptr(),
+        );
+        if raw.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let gate = Event(raw as usize);
+        let result = WaitForSingleObject(gate.handle(), 5000);
+        if result != WAIT_OBJECT_0 && result != WAIT_ABANDONED_0 {
+            return Err("設定画面の表示要求が混み合っています。再試行してください。".into());
+        }
+        ClientGuard(gate)
     };
     // Transfer foreground permission even before the lazy window exists.
     // The PID is published in a mapping with the same current-user-only DACL.
@@ -238,6 +272,11 @@ mod tests {
         .unwrap();
         request_settings().unwrap();
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let clients: Vec<_> = (0..3).map(|_| thread::spawn(request_settings)).collect();
+        for client in clients {
+            client.join().unwrap().unwrap();
+            rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
         let now = Instant::now();
         drop(server);
         assert!(now.elapsed() < Duration::from_secs(1));

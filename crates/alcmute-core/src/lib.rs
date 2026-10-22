@@ -164,6 +164,7 @@ impl Options {
                 _ => return Err(format!("Unknown argument: {arg}")),
             }
         }
+        options.data_dir = std::path::absolute(&options.data_dir).map_err(|e| e.to_string())?;
         // Old sign-in commands explicitly pass the former default directory.
         if !options.benchmark && options.data_dir == migration::legacy_directory() {
             options.data_dir = migration::default_directory();
@@ -943,6 +944,59 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(all(feature = "windows-integration", not(feature = "installer")))]
+    #[test]
+    fn portable_save_and_reset_never_change_startup_even_with_legacy_true() {
+        let dir =
+            std::env::temp_dir().join(format!("alcmute-portable-policy-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let options = Options {
+            data_dir: dir.clone(),
+            benchmark: false,
+        };
+        let (key, _) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+            .create_subkey(format!(
+                r"Software\AlcMute\Testing\{}\Run",
+                std::process::id()
+            ))
+            .unwrap();
+        let previous = key.get_raw_value("AlcMute").ok();
+        key.set_value("AlcMute", &"legacy sentinel").unwrap();
+        let config = Config {
+            target: free_address(),
+            listen: free_address(),
+            shortcut: "Ctrl+Alt+Shift+F18".into(),
+            autostart: true,
+            ..Default::default()
+        };
+        let mut text = toml::to_string(&config).unwrap();
+        text.push_str("autostart = true\n");
+        fs::write(dir.join("settings.toml"), text).unwrap();
+        let mut core = Controller::new(options.clone(), Arc::new(|_| {})).unwrap();
+        assert!(!core.config.autostart);
+        let mut draft = core.config.clone();
+        draft.autostart = true;
+        core.apply(draft).unwrap();
+        assert!(!core.config.autostart);
+        assert!(!fs::read_to_string(dir.join("settings.toml"))
+            .unwrap()
+            .contains("autostart"));
+        drop(core);
+        let pending = dir.join("settings.pending.toml");
+        fs::write(&pending, "").unwrap();
+        commit_settings(&options, &Config::default(), &pending).unwrap();
+        assert!(!dir.join("settings.toml").exists());
+        assert_eq!(
+            key.get_value::<String, _>("AlcMute").unwrap(),
+            "legacy sentinel"
+        );
+        if let Some(value) = previous {
+            key.set_raw_value("AlcMute", &value).unwrap();
+        } else {
+            key.delete_value("AlcMute").unwrap();
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
     fn free_address() -> String {
         UdpSocket::bind("127.0.0.1:0")
             .unwrap()

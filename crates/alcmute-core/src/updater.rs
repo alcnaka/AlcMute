@@ -136,7 +136,7 @@ fn fetch(endpoint: &str) -> Result<Option<Release>> {
         .call()
     {
         Ok(value) => value,
-        Err(ureq::Error::StatusCode(404)) => return Ok(None),
+        Err(ureq::Error::StatusCode(status)) => return parse_response(status, ""),
         Err(e) => return Err(format!("更新情報を取得できません: {e}")),
     };
     let text = response
@@ -145,7 +145,16 @@ fn fetch(endpoint: &str) -> Result<Option<Release>> {
         .limit(2 * 1024 * 1024)
         .read_to_string()
         .map_err(|e| e.to_string())?;
-    let release: Release = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    parse_response(response.status().as_u16(), &text)
+}
+fn parse_response(status: u16, text: &str) -> Result<Option<Release>> {
+    if status == 404 {
+        return Ok(None);
+    }
+    if status != 200 {
+        return Err(format!("GitHub API HTTP {status}"));
+    }
+    let release: Release = serde_json::from_str(text).map_err(|e| e.to_string())?;
     release.version()?;
     Ok(Some(release))
 }
@@ -351,5 +360,45 @@ mod tests {
         assert_eq!(checksum(&line, "Setup.exe").unwrap(), [0xaa; 32]);
         assert!(checksum(&format!("{line}\n{line}"), "Setup.exe").is_err());
         assert!(checksum(&line, "evil.exe").is_err());
+        assert!(checksum(
+            &format!("{}  Setup.exe", "あ".repeat(21) + "x"),
+            "Setup.exe"
+        )
+        .is_err());
+    }
+    #[test]
+    fn handles_missing_release_api_errors_and_malformed_response() {
+        assert!(parse_response(404, "").unwrap().is_none());
+        for status in [301, 403, 429, 500] {
+            assert!(parse_response(status, "").is_err());
+        }
+        assert!(parse_response(200, "not JSON").is_err());
+        assert!(parse_response(200,r#"{"tag_name":"v0.3.1","html_url":"https://evil.test/","draft":false,"prerelease":false,"assets":[]}"#).is_err());
+    }
+    #[test]
+    fn update_preferences_are_separate_and_preserve_v022_settings() {
+        let dir = std::env::temp_dir().join(format!("alcmute-update-prefs-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let options = Options {
+            data_dir: dir.clone(),
+            benchmark: true,
+        };
+        let original = "shortcut = 'KeyK+KeyL'\n";
+        fs::write(dir.join("settings.toml"), original).unwrap();
+        assert!(Preferences::load(&options).unwrap().auto_check);
+        Preferences { auto_check: false }.save(&options).unwrap();
+        assert!(!Preferences::load(&options).unwrap().auto_check);
+        assert_eq!(
+            fs::read_to_string(dir.join("settings.toml")).unwrap(),
+            original
+        );
+        crate::settings_store::validate(original).unwrap();
+        fs::write(dir.join("updates.toml"), "auto_check = [").unwrap();
+        assert!(Preferences::load(&options).is_err());
+        assert_eq!(
+            fs::read_to_string(dir.join("settings.toml")).unwrap(),
+            original
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
 }

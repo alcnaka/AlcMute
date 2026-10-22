@@ -11,14 +11,14 @@ const NAME: &str = "AlcMute";
 pub(super) const LEGACY_STARTUP_NAME: &str = "VRChatMuteController";
 const INSTALL_KEY: &str = r"Software\Alcnaka\AlcMute";
 pub(super) fn startup_path(options: &Options) -> String {
-    if options.benchmark {
+    if cfg!(test) || options.benchmark {
         format!(r"Software\AlcMute\Testing\{}\Run", std::process::id())
     } else {
         r"Software\Microsoft\Windows\CurrentVersion\Run".into()
     }
 }
 fn approved_path(options: &Options) -> String {
-    if options.benchmark {
+    if cfg!(test) || options.benchmark {
         format!(
             r"Software\AlcMute\Testing\{}\StartupApproved",
             std::process::id()
@@ -49,6 +49,18 @@ pub fn registered_directory() -> Result<PathBuf> {
         .map_err(|e| e.to_string())?;
     let path: String = key.get_value("InstallDir").map_err(|e| e.to_string())?;
     let directory = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let uninstall=RegKey::predef(HKEY_CURRENT_USER).open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{D7267BA5-A7BD-46DB-A39F-47E9F7843CF6}_is1").map_err(|e|e.to_string())?;
+    let installed: String = uninstall
+        .get_value("InstallLocation")
+        .map_err(|e| e.to_string())?;
+    let publisher: String = uninstall
+        .get_value("Publisher")
+        .map_err(|e| e.to_string())?;
+    if std::fs::canonicalize(installed).map_err(|e| e.to_string())? != directory
+        || publisher != "Alcnaka"
+    {
+        return Err("Installation/uninstall registration mismatch".into());
+    }
     let exe = std::fs::canonicalize(directory.join("alcmute.exe")).map_err(|e| e.to_string())?;
     let local =
         std::fs::canonicalize(std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is missing")?)
@@ -87,8 +99,8 @@ pub fn startup_snapshot(options: &Options) -> Result<Option<String>> {
 pub(super) fn startup_command(exe: &Path, directory: &Path) -> Result<String> {
     let command = format!(
         "{} --background --data-dir {}",
-        quote_arg(exe.to_str().ok_or("Invalid executable path")?),
-        quote_arg(directory.to_str().ok_or("Invalid settings path")?)
+        quote_arg(&super::normal_path(exe)?),
+        quote_arg(&super::normal_path(directory)?)
     );
     if command.encode_utf16().count() > 260 {
         return Err("Startup command exceeds 260 characters".into());
@@ -115,15 +127,20 @@ fn approval(options: &Options, name: &str) -> Result<Option<winreg::RegValue>> {
 }
 fn disabled(value: Option<&winreg::RegValue>) -> bool {
     // Only the known enabled encoding is considered enabled. Preserve unknown states.
-    value.is_some_and(|value| value.bytes.first() != Some(&2))
+    value.is_some_and(|value| {
+        value.vtype != winreg::enums::REG_BINARY
+            || value.bytes.len() != 12
+            || value.bytes[..4] != [2, 0, 0, 0]
+    })
 }
 pub fn startup_enabled(options: &Options) -> Result<bool> {
     if !startup_available(options) {
         return Ok(false);
     }
-    Ok(startup_snapshot(options)?
-        .is_some_and(|saved| expected_command(options).is_ok_and(|expected| expected == saved))
-        && !disabled(approval(options, NAME)?.as_ref()))
+    Ok(
+        startup_snapshot(options)?.is_some_and(|saved| points_to_current(&saved).unwrap_or(false))
+            && !disabled(approval(options, NAME)?.as_ref()),
+    )
 }
 pub fn restore_startup(options: &Options, command: Option<&str>) -> Result<()> {
     require_managed(options)?;
@@ -147,16 +164,45 @@ pub fn set_startup(options: &Options, enabled: bool) -> Result<()> {
     let previous = startup_snapshot(options)?;
     // Never remove a different product's/portable executable's registration.
     if previous.as_deref().is_some_and(|command| {
-        expected_command(options).as_deref() != Ok(command) && !owned_entry(NAME, command)
+        !points_to_current(command).unwrap_or(false) && !owned_entry(NAME, command)
     }) {
-        return Err("既存のAlcMute登録を安全に識別できません。変更しませんでした。".into());
+        return if enabled {
+            Err("既存のAlcMute登録を安全に識別できません。変更しませんでした。".into())
+        } else {
+            Ok(())
+        };
     }
-    if enabled && disabled(approval(options, NAME)?.as_ref()) {
-        return Err("Windowsのスタートアップ設定で無効化されています。Windowsの設定から有効にしてください。".into());
+    if disabled(approval(options, NAME)?.as_ref()) {
+        return if enabled {
+            Err("Windowsのスタートアップ設定で無効化されています。Windowsの設定から有効にしてください。".into())
+        } else {
+            Ok(())
+        };
     }
     let desired = if enabled {
-        Some(expected_command(options)?)
+        if let Some(saved) = previous
+            .as_ref()
+            .filter(|saved| points_to_current(saved).unwrap_or(false))
+        {
+            let args = arguments(saved).ok_or("Invalid startup command")?;
+            if args.iter().any(|arg| arg == "--background") {
+                Some(saved.clone())
+            } else {
+                Some(startup_command(
+                    &std::env::current_exe().map_err(|e| e.to_string())?,
+                    &data_directory(&args).unwrap_or_else(|| options.data_dir.clone()),
+                )?)
+            }
+        } else {
+            Some(expected_command(options)?)
+        }
     } else {
+        if previous
+            .as_deref()
+            .is_some_and(|saved| !points_to_current(saved).unwrap_or(false))
+        {
+            return Ok(());
+        }
         None
     };
     if previous == desired {
@@ -188,12 +234,30 @@ fn arguments(command: &str) -> Option<Vec<String>> {
     }
     Some(args)
 }
+fn points_to_current(command: &str) -> Result<bool> {
+    let current = std::fs::canonicalize(std::env::current_exe().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    Ok(arguments(command)
+        .and_then(|args| args.first().cloned())
+        .and_then(|exe| std::fs::canonicalize(exe).ok())
+        .as_ref()
+        == Some(&current))
+}
 fn data_directory(args: &[String]) -> Option<PathBuf> {
     args.windows(2)
         .find(|pair| pair[0] == "--data-dir")
         .map(|pair| PathBuf::from(&pair[1]))
 }
 fn product_identity(path: &Path) -> bool {
+    resource_fields(path)
+        .is_some_and(|(company, product, _)| company == "Alcnaka" && product == "AlcMute")
+}
+pub fn executable_version(path: &Path) -> Result<String> {
+    resource_fields(path)
+        .map(|(_, _, version)| version)
+        .ok_or("実行ファイルのバージョン情報を取得できません".into())
+}
+fn resource_fields(path: &Path) -> Option<(String, String, String)> {
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW,
     };
@@ -205,11 +269,11 @@ fn product_identity(path: &Path) -> bool {
         .collect();
     let size = unsafe { GetFileVersionInfoSizeW(wide.as_ptr(), std::ptr::null_mut()) };
     if size == 0 || size > 1024 * 1024 {
-        return false;
+        return None;
     }
     let mut data = vec![0u32; (size as usize).div_ceil(4)];
     if unsafe { GetFileVersionInfoW(wide.as_ptr(), 0, size, data.as_mut_ptr().cast()) } == 0 {
-        return false;
+        return None;
     }
     // winresource's fixed language/codepage. Unknown resources are conservatively skipped.
     let query = |field: &str| -> Option<String> {
@@ -228,8 +292,11 @@ fn product_identity(path: &Path) -> bool {
             std::slice::from_raw_parts(ptr.cast::<u16>(), len as usize - 1)
         }))
     };
-    query("CompanyName").as_deref() == Some("Alcnaka")
-        && query("ProductName").as_deref() == Some("AlcMute")
+    Some((
+        query("CompanyName")?,
+        query("ProductName")?,
+        query("FileVersion")?,
+    ))
 }
 fn owned_command(command: &str) -> bool {
     let Some(args) = arguments(command) else {
@@ -345,16 +412,25 @@ pub fn migrate_startup(options: &Options) -> Result<()> {
         .iter()
         .map(|(name, _, _)| approval(options, name).map(|value| (name.clone(), value)))
         .collect::<Result<Vec<_>>>()?;
+    if approvals.iter().any(|(_, value)| {
+        value.as_ref().is_some_and(|value| {
+            value.vtype != winreg::enums::REG_BINARY
+                || value.bytes.len() != 12
+                || !matches!(value.bytes[..4], [2, 0, 0, 0] | [3, 0, 0, 0])
+        })
+    }) {
+        return Err("StartupApprovedの状態を判定できません。旧登録を保持して移行を中止しました。Windows側の設定を確認してください。".into());
+    }
     let preserve_disabled = approvals
         .iter()
         .find_map(|(_, value)| value.as_ref().filter(|value| disabled(Some(value))));
     // The entire original registry data is durable before the first mutation.
     std::fs::create_dir_all(&options.data_dir).map_err(|e| e.to_string())?;
     let journal = options.data_dir.join("startup-migration-backup.txt");
-    let snapshot = recognized
-        .iter()
-        .map(|(name, _, command)| format!("{name} = {command}\n"))
-        .collect::<String>();
+    let snapshot = serde_json::json!({
+        "run":recognized.iter().map(|(name,value,command)|serde_json::json!({"name":name,"command":command,"type":format!("{:?}",value.vtype),"bytes":&value.bytes})).collect::<Vec<_>>(),
+        "startup_approved":approvals.iter().map(|(name,value)|serde_json::json!({"name":name,"value":value.as_ref().map(|value|serde_json::json!({"type":format!("{:?}",value.vtype),"bytes":&value.bytes}))})).collect::<Vec<_>>()
+    }).to_string()+"\n";
     let mut file = std::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -429,15 +505,12 @@ pub fn migrate_startup(options: &Options) -> Result<()> {
 }
 pub fn uninstall_cleanup(options: &Options) -> Result<()> {
     require_managed(options)?;
+    let current = std::fs::canonicalize(std::env::current_exe().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     if let Some(command) = startup_snapshot(options)? {
         if arguments(&command)
             .and_then(|args| args.first().cloned())
-            .is_some_and(|exe| {
-                std::fs::canonicalize(exe).ok()
-                    == std::env::current_exe()
-                        .ok()
-                        .and_then(|p| std::fs::canonicalize(p).ok())
-            })
+            .is_some_and(|exe| std::fs::canonicalize(exe).ok().as_ref() == Some(&current))
         {
             restore_startup(options, None)?;
         }
@@ -472,6 +545,14 @@ mod tests {
             quote_arg(crate::migration::default_directory().to_str().unwrap())
         );
         assert!(owned_command(&command));
+        let old = format!(
+            "{} --data-dir {}",
+            quote_arg(r"C:\Legacy\alcmute.exe"),
+            quote_arg(crate::migration::default_directory().to_str().unwrap())
+        );
+        assert!(owned_entry(NAME, &old));
+        assert!(owned_entry(LEGACY_STARTUP_NAME, &old));
+        assert!(!owned_entry("unrelated", &old));
     }
     #[test]
     fn private_registry_migration_preserves_disabled_entries_and_is_idempotent() {
@@ -491,12 +572,19 @@ mod tests {
             .create_subkey(approved_path(&options))
             .unwrap();
         let old_approval = approved.get_raw_value(NAME).ok();
+        migrate_startup(&options).unwrap();
+        assert!(
+            startup_snapshot(&options).unwrap().is_none(),
+            "OFF must remain OFF"
+        );
         let command = format!(
             "{} --data-dir {}",
             quote_arg(r"C:\Work\vrchat-ui-poc\slint-tray\target\release\poc-slint.exe"),
             quote_arg(crate::migration::default_directory().to_str().unwrap())
         );
         key.set_value(LEGACY_STARTUP_NAME, &command).unwrap();
+        key.set_value(NAME, &command).unwrap();
+        key.set_value("old-poc", &command).unwrap();
         key.set_value("unrelated", &r#""C:\Unrelated\alcmute.exe""#)
             .unwrap();
         approved
@@ -510,11 +598,17 @@ mod tests {
             .unwrap();
         migrate_startup(&options).unwrap();
         assert!(key.get_value::<String, _>(LEGACY_STARTUP_NAME).is_err());
+        assert!(key.get_value::<String, _>("old-poc").is_err());
         let migrated = key.get_value::<String, _>(NAME).unwrap();
         assert!(migrated.contains("--background"));
         assert!(migrated.contains(crate::migration::default_directory().to_str().unwrap()));
         assert!(!startup_enabled(&options).unwrap());
         assert!(set_startup(&options, true).is_err());
+        set_startup(&options, false).unwrap();
+        assert!(
+            startup_snapshot(&options).unwrap().is_some(),
+            "Windows-disabled registration must remain available in Windows settings"
+        );
         assert!(key.get_value::<String, _>("unrelated").is_ok());
         // Already migrated command points to this test binary. No legacy registration is recreated.
         migrate_startup(&options).unwrap();
@@ -529,6 +623,14 @@ mod tests {
         assert!(startup_enabled(&options).unwrap());
         uninstall_cleanup(&options).unwrap();
         assert!(startup_snapshot(&options).unwrap().is_none());
+        key.set_value(NAME, &r#""C:\Unrelated\alcmute.exe""#)
+            .unwrap();
+        uninstall_cleanup(&options).unwrap();
+        set_startup(&options, false).unwrap();
+        assert!(
+            startup_snapshot(&options).unwrap().is_some(),
+            "Unrelated registration must survive uninstall/disable"
+        );
         for entry in key
             .enum_values()
             .collect::<std::io::Result<Vec<_>>>()

@@ -495,9 +495,9 @@ mod startup;
 #[cfg(test)]
 use startup::startup_command;
 pub use startup::{
-    installation_directory, installed_version, migrate_startup, registered_directory,
-    restore_startup, set_startup, startup_available, startup_enabled, startup_snapshot,
-    uninstall_cleanup,
+    executable_version, installation_directory, installed_version, migrate_startup,
+    registered_directory, restore_startup, set_startup, startup_available, startup_enabled,
+    startup_snapshot, uninstall_cleanup,
 };
 
 pub fn quote_arg(arg: &str) -> String {
@@ -519,6 +519,16 @@ pub fn quote_arg(arg: &str) -> String {
     result.push_str(&"\\".repeat(slashes * 2));
     result.push('"');
     result
+}
+pub fn normal_path(path: &std::path::Path) -> Result<String> {
+    let text = path.to_str().ok_or("Path must be valid Unicode")?;
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        Ok(format!(r"\\{rest}"))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        Ok(rest.to_owned())
+    } else {
+        Ok(text.to_owned())
+    }
 }
 pub fn queued_keyboard_keys() -> Result<Vec<u16>> {
     let mut keys = [0u8; 256];
