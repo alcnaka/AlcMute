@@ -8,6 +8,8 @@ AlcMuteの利用者に関わる主な変更を、このファイルに記録し�
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-23
+
 ### Added（追加）
 
 - **ショートカット記録の左右指定**：「修飾キーの左右を区別する」を追加。記録時に左右指定か左右共通かを選択でき、チェックの変更だけでは登録済みのショートカットに影響しない。
@@ -107,7 +109,8 @@ AlcMute（あるみゅーと / VRC Background Mute）の初回リリース。
 - 異なるDPIのモニター間でのウィンドウ移動・描画への対策。
 - Windows 10 / 11のx64向けポータブル版ZIPによる配布。
 
-[Unreleased]: https://github.com/alcnaka/AlcMute/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/alcnaka/AlcMute/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/alcnaka/AlcMute/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/alcnaka/AlcMute/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/alcnaka/AlcMute/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/alcnaka/AlcMute/compare/v0.2.0...v0.2.1

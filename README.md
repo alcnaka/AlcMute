@@ -20,15 +20,15 @@ VRChatが非アクティブでも、ショートカットやWindowsの通知領�
 v0.3.0からInstaller版とPortable版を配布しています。
 最新版は[GitHub Releases](https://github.com/alcnaka/AlcMute/releases/latest)から取得できます。
 
-| 形式 | ファイル名（v0.3.0） | Windowsサインイン時の自動起動 | 更新 |
+| 形式 | ファイル名（v0.3.1） | Windowsサインイン時の自動起動 | 更新 |
 | --- | --- | --- | --- |
-| Installer版（通常利用向け） | `AlcMute-0.3.0-Setup.exe` | 設定可能 | 利用者の確認後にアプリ内から更新 |
-| Portable版 | `AlcMute-0.3.0-Portable.zip` | 使用不可 | 更新通知後に手動で取得・差し替え |
+| Installer版（通常利用向け） | `AlcMute-0.3.1-Setup.exe` | 設定可能 | 利用者の確認後にアプリ内から更新 |
+| Portable版 | `AlcMute-0.3.1-Portable.zip` | 使用不可 | 更新通知後に手動で取得・差し替え |
 
 ### Installer版
 
 1. 起動中のAlcMuteをトレイメニューの「終了」から終了します。旧Portable版も対象です。
-2. `AlcMute-0.3.0-Setup.exe`を実行し、画面の案内に従います。
+2. `AlcMute-0.3.1-Setup.exe`を実行し、画面の案内に従います。
 3. インストールが完了すると、設定画面を開かずトレイへ常駐します。
 4. 設定はスタートメニューの「AlcMute」またはトレイメニューの「設定」から開きます。
 
