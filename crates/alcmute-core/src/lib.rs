@@ -1,4 +1,5 @@
 use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
+pub mod appearance;
 mod apply_error;
 mod migration;
 pub use apply_error::{ApplyError, ApplyErrorKind};
@@ -38,6 +39,13 @@ pub struct Config {
     pub tray_double_click_settings: bool,
     #[serde(skip_serializing_if = "is_true")]
     pub show_settings_on_startup: bool,
+    #[serde(skip_serializing_if = "is_true")]
+    pub auto_check_updates: bool,
+    #[serde(skip_serializing_if = "default_theme")]
+    pub theme: appearance::Theme,
+}
+fn default_theme(value: &appearance::Theme) -> bool {
+    *value == appearance::Theme::Auto
 }
 fn default_target(value: &String) -> bool {
     value == &Config::default().target
@@ -63,10 +71,79 @@ impl Default for Config {
             autostart: false,
             tray_double_click_settings: false,
             show_settings_on_startup: true,
+            auto_check_updates: true,
+            theme: appearance::Theme::Auto,
         }
     }
 }
 impl Config {
+    pub fn load(options: &Options) -> Result<Self> {
+        let path = options.data_dir.join("settings.toml");
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(format!("Cannot read {}: {error}", path.display())),
+        };
+        let mut config: Self = toml::from_str(&text)
+            .map_err(|error| format!("Invalid settings in {}: {error}", path.display()))?;
+        let legacy = options.data_dir.join("updates.toml");
+        if legacy.exists() {
+            let document: toml::Value = toml::from_str(&text).map_err(|error| error.to_string())?;
+            if document.get("auto_check_updates").is_none() {
+                #[derive(Deserialize)]
+                #[serde(default, deny_unknown_fields)]
+                struct Legacy {
+                    auto_check: bool,
+                }
+                impl Default for Legacy {
+                    fn default() -> Self {
+                        Self { auto_check: true }
+                    }
+                }
+                let old: Legacy = toml::from_str(
+                    &fs::read_to_string(&legacy).map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| format!("更新確認設定を移行できません: {error}"))?;
+                config.auto_check_updates = old.auto_check;
+            }
+            config.validate()?;
+            let pending = options.data_dir.join("settings.pending.toml");
+            let mut unified = toml::Value::try_from(&config).map_err(|error| error.to_string())?;
+            // Keep an explicit precedence marker until the legacy file is archived.
+            unified
+                .as_table_mut()
+                .ok_or("Invalid settings table")?
+                .insert(
+                    "auto_check_updates".into(),
+                    toml::Value::Boolean(config.auto_check_updates),
+                );
+            settings_store::write_pending(
+                &pending,
+                toml::to_string(&unified)
+                    .map_err(|error| error.to_string())?
+                    .as_bytes(),
+            )?;
+            if path.exists() {
+                settings_store::backup(&path)?;
+            }
+            settings_store::replace(&pending, &path)?;
+            // Retain legacy data as an archive, never as a second active settings file.
+            let mut backup = options.data_dir.join("updates.toml.bak");
+            if backup.exists() {
+                backup = options.data_dir.join(format!(
+                    "updates.{}.bak",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|error| error.to_string())?
+                        .as_nanos()
+                ));
+            }
+            fs::rename(&legacy, backup)
+                .map_err(|error| format!("旧更新設定を保全できません: {error}"))?;
+        }
+        config.validate()?;
+        Ok(config)
+    }
     pub fn validate(&self) -> Result<()> {
         for addr in [&self.target, &self.listen] {
             let parsed: SocketAddr = addr
@@ -449,14 +526,8 @@ impl Controller {
             migration::settings(&migration::legacy_directory(), &options.data_dir)?;
         }
         fs::create_dir_all(&options.data_dir).map_err(|e| e.to_string())?;
-        let path = options.data_dir.join("settings.toml");
         #[allow(unused_mut)]
-        let mut config: Config = if path.exists() {
-            toml::from_str(&fs::read_to_string(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?)
-                .map_err(|e| format!("Invalid settings in {}: {e}. 設定ファイルを修正するか、バックアップしてから名前を変更してください。", path.display()))?
-        } else {
-            Config::default()
-        };
+        let mut config = Config::load(&options)?;
         config.validate()?;
         #[cfg(feature = "windows-integration")]
         {
@@ -1049,6 +1120,8 @@ mod tests {
         let mut update = core.config.clone();
         update.tray_double_click_settings = true;
         update.show_settings_on_startup = false;
+        update.theme = appearance::Theme::Dark;
+        update.auto_check_updates = false;
         core.apply(update.clone()).unwrap();
         core.apply(update.clone()).unwrap(); // unchanged apply keeps the runtime
         update.shortcut = "Ctrl+Alt+Shift+F22".into();
@@ -1068,6 +1141,8 @@ mod tests {
 
         let mut shortcut = update.clone();
         shortcut.shortcut = "Ctrl+Alt+Shift+F21".into();
+        shortcut.theme = appearance::Theme::Light;
+        shortcut.auto_check_updates = true;
         core.faults.register.set(true);
         assert!(core.apply(shortcut.clone()).is_err());
         core.faults.register.set(false);

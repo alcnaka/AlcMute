@@ -4,11 +4,14 @@ use slint::winit_030::WinitWindowAccessor;
 use slint::ComponentHandle;
 mod about;
 mod shortcut;
+mod theme;
 mod update_install;
 mod updates;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 slint::slint! {
-    import { VerticalBox, HorizontalBox, LineEdit, Button, CheckBox, ScrollView } from "std-widgets.slint";
+    import { VerticalBox, HorizontalBox, LineEdit, Button, CheckBox, ScrollView, ComboBox } from "std-widgets.slint";
+    import { AppTheme } from "theme.slint";
+    export { AppTheme }
     component ResetButton inherits FocusScope {
         in property <string> setting-name;
         enabled: true;
@@ -26,6 +29,7 @@ slint::slint! {
         }
         Image {
             source: @image-url("../assets/reset.svg");
+            colorize: AppTheme.foreground;
             opacity: !root.enabled ? 0.25 : (touch.has-hover || root.has-focus ? 0.95 : 0.5);
         }
         touch := TouchArea { enabled: root.enabled; clicked => { root.focus(); root.clicked(); } }
@@ -53,8 +57,8 @@ slint::slint! {
             }
             return reject;
         }
-        label := Text { text: root.text; font-size: 14px; color: #65b8ff; vertical-alignment: center; }
-        Rectangle { y: parent.height - 5px; width: parent.width; height: 1px; background: #65b8ff; opacity: touch.has-hover || root.has-focus ? 1 : 0.4; }
+        label := Text { text: root.text; font-size: 14px; color: AppTheme.accent; vertical-alignment: center; }
+        Rectangle { y: parent.height - 5px; width: parent.width; height: 1px; background: AppTheme.accent; opacity: touch.has-hover || root.has-focus ? 1 : 0.4; }
         touch := TouchArea { enabled: root.enabled; clicked => {root.focus(); root.clicked();} }
     }
     component OutlineAction inherits FocusScope {
@@ -74,8 +78,8 @@ slint::slint! {
         }
         Rectangle {
             border-radius: 5px; border-width: 1px;
-            border-color: root.has-focus ? #438de8 : #8887;
-            background: touch.pressed ? #8883 : touch.has-hover ? #8882 : transparent;
+            border-color: root.has-focus ? AppTheme.accent : AppTheme.border;
+            background: touch.pressed ? AppTheme.border : touch.has-hover ? AppTheme.surface : transparent;
         }
         label := Text {
             x: 14px; width: parent.width - 28px; height: parent.height;
@@ -106,10 +110,10 @@ slint::slint! {
                 x: 0px; y: (root.height - self.height) / 2;
                 width: 20px; height: 20px; border-radius: 10px;
                 border-width: 2px;
-                border-color: root.checked || root.has-focus ? #438de8 : #888;
+                border-color: root.checked || root.has-focus ? AppTheme.accent : AppTheme.border;
                 Rectangle {
                     x: 5px; y: 5px; width: 10px; height: 10px; border-radius: 5px;
-                    background: #438de8; visible: root.checked;
+                    background: AppTheme.accent; visible: root.checked;
                 }
             }
             Text {
@@ -122,6 +126,7 @@ slint::slint! {
     export component Settings inherits Window {
         title: "AlcMute";
         icon: @image-url("../assets/app.png");
+        background: AppTheme.background;
         preferred-width: 640px; preferred-height: 800px;
         min-width: 480px; min-height: 420px;
         default-font-size: 15px;
@@ -145,12 +150,15 @@ slint::slint! {
         in property <bool> saved-show-settings-on-startup;
         in property <int> saved-tray-double-click-action;
         in property <bool> saved-auto-check-updates;
+        in-out property <int> theme-index;
+        in property <int> saved-theme-index;
         out property <bool> dirty: root.target != root.saved-target
             || root.listen != root.saved-listen || root.shortcut != root.saved-shortcut
             || root.autostart != root.saved-autostart
             || root.show-settings-on-startup != root.saved-show-settings-on-startup
             || root.tray-double-click-action != root.saved-tray-double-click-action
-            || root.auto-check-updates != root.saved-auto-check-updates;
+            || root.auto-check-updates != root.saved-auto-check-updates
+            || root.theme-index != root.saved-theme-index;
         in property <string> config-path;
         in property <bool> can-toggle;
         in property <bool> save-ok;
@@ -166,6 +174,8 @@ slint::slint! {
         callback install-update();
         callback release-page();
         callback update-preferences(bool) -> bool;
+        callback preview-theme(int);
+        callback reset-theme() -> bool;
         callback save(string, string, string, bool);
         callback toggle();
         callback dismiss();
@@ -200,10 +210,10 @@ slint::slint! {
                     property <bool> has-overflow: settings-scroll.content-height > settings-scroll.visible-height + 1px;
                     vertical-stretch: 1;
                     min-height: 60px;
-                    background: #8881;
+                    background: AppTheme.surface;
                     Rectangle {
                         x: parent.width - self.width; width: 14px; height: parent.height;
-                        border-radius: 7px; background: #8882;
+                        border-radius: 7px; background: AppTheme.foreground; opacity: 0.08;
                     }
                     settings-scroll := ScrollView {
                         width: parent.width; height: parent.height;
@@ -276,6 +286,20 @@ slint::slint! {
                             }
                             LineEdit { text <=> root.listen; enabled: !root.capturing; }
                             Rectangle { height: 16px; }
+                            SectionTitle { text: "外観"; }
+                            HorizontalBox {
+                                FieldLabel { text: "テーマ"; horizontal-stretch: 0; }
+                                ResetButton { setting-name: "テーマ"; enabled: !root.capturing; clicked => {root.reset-field(7);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            ComboBox {
+                                model: ["自動（Windowsの設定に合わせる）", "ライト", "ダーク"];
+                                current-index <=> root.theme-index;
+                                enabled: !root.capturing;
+                                selected => {root.preview-theme(self.current-index);}
+                            }
+                            Hint { text: "選択するとプレビューします。「保存」で確定します。"; }
+                            Rectangle { height: 16px; }
                             SectionTitle { text: "アップデート"; }
                             HorizontalBox {
                                 CheckBox { horizontal-stretch: 0; text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; }
@@ -309,7 +333,7 @@ slint::slint! {
                         width: parent.width; height: 16px;
                         opacity: scroll-frame.has-overflow && settings-scroll.content-y < -1px ? 1 : 0;
                         animate opacity { duration: 180ms; easing: ease-in-out; }
-                        background: @linear-gradient(180deg, #0006, #0000);
+                        background: @linear-gradient(180deg, AppTheme.shadow, #0000);
                     }
                     Rectangle {
                         x: 0px;
@@ -317,13 +341,13 @@ slint::slint! {
                         width: parent.width; height: 16px;
                         opacity: scroll-frame.has-overflow && settings-scroll.content-height + settings-scroll.content-y > settings-scroll.visible-height + 1px ? 1 : 0;
                         animate opacity { duration: 180ms; easing: ease-in-out; }
-                        background: @linear-gradient(0deg, #0006, #0000);
+                        background: @linear-gradient(0deg, AppTheme.shadow, #0000);
                     }
                 }
                 VerticalBox {
                     padding: 24px; padding-top: 16px; spacing: 8px; vertical-stretch: 0;
-                    if root.dirty: Text { text: "保存されていない設定があります"; color: #d58b28; font-size: 15px; wrap: word-wrap; }
-                    if root.message != "": Text { text: root.message; wrap: word-wrap; color: root.save-ok ? #16814b : #b04030; font-size: 14px; }
+                    if root.dirty: Text { text: "保存されていない設定があります"; color: AppTheme.warning; font-size: 15px; wrap: word-wrap; }
+                    if root.message != "": Text { text: root.message; wrap: word-wrap; color: root.save-ok ? AppTheme.success : AppTheme.error; font-size: 14px; }
                     HorizontalBox {
                         OutlineAction { text: "アプリを終了…"; clicked => {root.cancel-capture(); root.quit-confirmed();} }
                         Rectangle { horizontal-stretch: 1; }
@@ -337,13 +361,13 @@ slint::slint! {
             x: (root.width - self.width) / 2;
             y: (root.height - self.height) / 2;
             width: min(420px, root.width - 64px); height: 172px;
-            drop-shadow-color: #0009; drop-shadow-blur: 24px; drop-shadow-offset-y: 8px;
-            background: #243b53; border-color: #76b9f0; border-width: 1px; border-radius: 8px;
+            drop-shadow-color: AppTheme.shadow; drop-shadow-blur: 24px; drop-shadow-offset-y: 8px;
+            background: AppTheme.surface; border-color: AppTheme.accent; border-width: 1px; border-radius: 8px;
             TouchArea { }
             VerticalBox {
                 padding: 20px; spacing: 12px;
-                Text { text: "AlcMuteは起動済みです"; color: white; font-size: 17px; font-weight: 700; }
-                Text { text: "既存のAlcMuteの設定画面を表示しました。"; color: white; font-size: 15px; wrap: word-wrap; }
+                Text { text: "AlcMuteは起動済みです"; color: AppTheme.foreground; font-size: 17px; font-weight: 700; }
+                Text { text: "既存のAlcMuteの設定画面を表示しました。"; color: AppTheme.foreground; font-size: 15px; wrap: word-wrap; }
                 HorizontalBox {
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: "OK"; clicked => {root.existing-instance-notice = false;} }
@@ -490,6 +514,7 @@ fn run(options: Options) -> Result<(), String> {
     // Lazy creation avoids paying for settings controls until the first use.
     let settings: Rc<RefCell<Option<Settings>>> = Rc::new(RefCell::new(None));
     let updates = updates::Updates::new(options.clone(), tray.as_weak());
+    let appearance = theme::Appearance::new(options.clone())?;
     let controller: Rc<RefCell<Option<Controller>>> = Rc::new(RefCell::new(None));
     let options_for_events = options.clone();
     let weak_tray = tray.as_weak();
@@ -497,15 +522,19 @@ fn run(options: Options) -> Result<(), String> {
     let settings_events = settings.clone();
     let show_about: Rc<dyn Fn()> = {
         let about = Rc::new(RefCell::new(None));
+        let appearance = appearance.clone();
         let options = options.clone();
         Rc::new(move || {
             if let Err(error) = about::show(&about) {
                 report_error(&options, "AlcMuteについてを表示できません", &error);
+            } else if let Some(ui) = about.borrow().as_ref() {
+                appearance.attach_about(ui);
             }
         })
     };
     let show: Rc<dyn Fn()> = {
         let updates = updates.clone();
+        let appearance = appearance.clone();
         let controller = controller.clone();
         let settings = settings.clone();
         let options = options.clone();
@@ -521,51 +550,42 @@ fn run(options: Options) -> Result<(), String> {
                 };
                 install_editing(&ui, controller.clone(), options.clone());
                 updates.attach(&ui);
+                appearance.attach(&ui);
                 ui.set_autostart_available(alcmute_core::windows::startup_available(&options));
                 let show_about = show_about.clone();
                 ui.on_about(move || show_about());
                 let weak = ui.as_weak();
                 let controller_save = controller.clone();
                 let updates_save = updates.clone();
+                let appearance_save = appearance.clone();
                 ui.on_save(move |target, listen, shortcut, autostart| {
-                    if let Some(core) = controller_save.borrow_mut().as_mut() {
-                        let previous = core.config.clone();
-                        let mut result = core
-                            .apply(Config {
+                    if let (Some(core), Some(ui)) =
+                        (controller_save.borrow_mut().as_mut(), weak.upgrade())
+                    {
+                        let result = theme::save_settings(
+                            core,
+                            &updates_save,
+                            &appearance_save,
+                            Config {
                                 target: target.trim().into(),
                                 listen: listen.trim().into(),
                                 shortcut: shortcut.trim().into(),
                                 autostart,
-                                show_settings_on_startup: weak
-                                    .upgrade()
-                                    .is_none_or(|ui| ui.get_show_settings_on_startup()),
-                                tray_double_click_settings: weak
-                                    .upgrade()
-                                    .is_some_and(|ui| ui.get_tray_double_click_action() == 1),
-                            })
-                            .map_err(|error| error.to_string());
-                        if let Some(ui) = weak.upgrade() {
-                            if result.is_ok() {
-                                if let Err(error) =
-                                    updates_save.save_preferences(ui.get_auto_check_updates())
-                                {
-                                    result = Err(match core.apply(previous) {
-                                        Ok(()) => error,
-                                        Err(rollback) => format!(
-                                            "{error}\n設定の復旧にも失敗しました: {rollback}"
-                                        ),
-                                    });
-                                }
-                            }
-                            if result.is_ok() {
-                                fill_config(&ui, &core.config);
-                            }
-                            ui.set_save_ok(result.is_ok());
-                            ui.set_message(match result {
-                                Ok(()) => "保存しました".into(),
-                                Err(error) => error.to_string().into(),
-                            });
+                                show_settings_on_startup: ui.get_show_settings_on_startup(),
+                                tray_double_click_settings: ui.get_tray_double_click_action() == 1,
+                                ..Config::default()
+                            },
+                            ui.get_auto_check_updates(),
+                            ui.get_theme_index(),
+                        );
+                        if result.is_ok() {
+                            fill_config(&ui, &core.config);
                         }
+                        ui.set_save_ok(result.is_ok());
+                        ui.set_message(match result {
+                            Ok(()) => "保存しました".into(),
+                            Err(error) => error.into(),
+                        });
                     }
                 });
                 let controller_toggle = controller.clone();
@@ -576,9 +596,11 @@ fn run(options: Options) -> Result<(), String> {
                 });
                 let weak = ui.as_weak();
                 let close_options = options.clone();
+                let close_appearance = appearance.clone();
                 ui.on_dismiss(move || {
                     if let Some(ui) = weak.upgrade() {
                         ui.invoke_cancel_capture();
+                        close_appearance.restore();
                         let _ = ui.hide();
                         close_options.marker("closed");
                     }
@@ -590,9 +612,11 @@ fn run(options: Options) -> Result<(), String> {
                 });
                 let weak = ui.as_weak();
                 let close_options = options.clone();
+                let close_appearance = appearance.clone();
                 ui.window().on_close_requested(move || {
                     if let Some(ui) = weak.upgrade() {
                         ui.invoke_cancel_capture();
+                        close_appearance.restore();
                         let _ = ui.hide();
                     }
                     close_options.marker("closed");
@@ -609,6 +633,7 @@ fn run(options: Options) -> Result<(), String> {
                 }
                 ui.invoke_cancel_capture();
                 updates.restore_editor(ui);
+                appearance.restore();
                 if let Some(core) = controller.borrow().as_ref() {
                     ui.set_target(core.config.target.clone().into());
                     ui.set_listen(core.config.listen.clone().into());
@@ -642,6 +667,7 @@ fn run(options: Options) -> Result<(), String> {
                 if let Err(error) = ui.show() {
                     report_error(&options, "設定画面を表示できません", &error.to_string());
                 } else {
+                    appearance.apply_current();
                     activate_settings(ui);
                     options.marker("open");
                 }
@@ -660,7 +686,7 @@ fn run(options: Options) -> Result<(), String> {
         Event::Hide => {
             if let Some(ui) = settings_events.borrow().as_ref() {
                 ui.invoke_cancel_capture();
-                let _ = ui.hide();
+                ui.invoke_dismiss();
             }
             options_for_events.marker("closed");
         }
@@ -1091,6 +1117,10 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
                 4 => ui.set_tray_double_click_action(0),
                 5 => ui.set_show_settings_on_startup(true),
                 6 => ui.set_auto_check_updates(true),
+                7 => {
+                    ui.set_theme_index(0);
+                    ui.invoke_preview_theme(0);
+                }
                 _ => return,
             }
             ui.set_save_ok(true);
@@ -1112,7 +1142,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
             match result {
                 Ok(()) => {
                     fill_config(&ui, &Config::default());
-                    if ui.invoke_update_preferences(true) {
+                    if ui.invoke_update_preferences(true) && ui.invoke_reset_theme() {
                         ui.set_message("保存済み設定を削除し、自動起動を解除しました".into());
                     }
                     options.marker("reset");
@@ -1192,36 +1222,46 @@ mod double_click_tests {
         };
         let tray = Tray::new().unwrap();
         let updates = updates::Updates::new(options.clone(), tray.as_weak());
+        let appearance = theme::Appearance::new(options.clone()).unwrap();
         updates.attach(&ui);
+        appearance.attach(&ui);
+        let about = about::About::new().unwrap();
+        appearance.attach_about(&about);
         assert!(ui.get_auto_check_updates());
+        assert_eq!(ui.get_theme_index(), 0);
         ui.set_auto_check_updates(false);
         assert!(ui.get_dirty());
-        assert!(!directory.join("updates.toml").exists());
+        assert!(!directory.join("settings.toml").exists());
         ui.set_auto_check_updates(true);
         assert!(!ui.get_dirty());
-        ui.set_auto_check_updates(false);
-        updates.save_preferences(false).unwrap();
+        for (index, dark) in [(1, false), (2, true)] {
+            ui.set_theme_index(index);
+            ui.invoke_preview_theme(index);
+            assert!(ui.get_dirty());
+            assert_eq!(ui.global::<AppTheme>().get_dark(), dark);
+            assert_eq!(about.global::<about::AppTheme>().get_dark(), dark);
+            assert!(!directory.join("settings.toml").exists());
+        }
+        appearance.accept_saved(alcmute_core::appearance::Theme::Dark);
         assert!(!ui.get_dirty());
-        assert!(
-            !alcmute_core::updater::Preferences::load(&options)
-                .unwrap()
-                .auto_check
-        );
-        ui.set_auto_check_updates(true);
-        assert!(ui.get_dirty());
-        updates.restore_editor(&ui);
-        assert!(!ui.get_auto_check_updates());
+        ui.set_theme_index(1);
+        ui.invoke_preview_theme(1);
+        assert!(!ui.global::<AppTheme>().get_dark());
+        appearance.restore();
+        assert_eq!(ui.get_theme_index(), 2);
+        assert!(ui.global::<AppTheme>().get_dark());
+        assert!(about.global::<about::AppTheme>().get_dark());
+        assert!(!ui.get_dirty());
+        assert!(ui.invoke_reset_theme());
+        assert_eq!(ui.get_theme_index(), 0);
         assert!(!ui.get_dirty());
         assert!(ui.invoke_update_preferences(true));
-        assert!(ui.get_auto_check_updates());
-        assert!(!ui.get_dirty());
-        // A failed write must not mark the draft as saved.
-        std::fs::create_dir(directory.join("updates.pending.toml")).unwrap();
-        ui.set_auto_check_updates(false);
-        assert!(updates.save_preferences(false).is_err());
-        assert!(ui.get_saved_auto_check_updates());
-        assert!(ui.get_dirty());
-        std::fs::remove_dir_all(directory).unwrap();
+        assert!(!directory.join("updates.toml").exists());
+        assert!(!directory.join("appearance.toml").exists());
+        // UI-only operations never create configuration files.
+        if directory.exists() {
+            std::fs::remove_dir_all(&directory).unwrap();
+        }
     }
     #[test]
     fn pairs_clicks_without_turning_a_triple_click_into_two_actions() {

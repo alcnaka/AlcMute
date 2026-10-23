@@ -3,9 +3,12 @@ use std::{cell::RefCell, rc::Rc};
 
 slint::slint! {
     import { VerticalBox, HorizontalBox, Button, TextEdit, ComboBox } from "std-widgets.slint";
+    import { AppTheme } from "theme.slint";
+    export { AppTheme }
     export component About inherits Window {
         title: "AlcMuteについて";
         icon: @image-url("../assets/app.png");
+        background: AppTheme.background;
         preferred-width: 640px; preferred-height: 640px;
         min-width: 420px; min-height: 400px;
         default-font-size: 15px;
@@ -49,7 +52,7 @@ slint::slint! {
                 Text { text: (root.page-index + 1) + " / " + root.page-count; vertical-alignment: center; horizontal-alignment: center; }
                 Button { text: "次のページ"; enabled: root.page-index + 1 < root.page-count; clicked => { root.turn-page(1); } }
             }
-            if root.error-message != "": Text { text: root.error-message; wrap: word-wrap; }
+            if root.error-message != "": Text { text: root.error-message; color: AppTheme.error; wrap: word-wrap; }
             HorizontalBox {
                 alignment: end;
                 Button { text: "閉じる"; clicked => { root.dismiss(); } }

@@ -1,45 +1,15 @@
 //! External HTTPS update traffic is separate from loopback OSCQuery.
 //! Release asset validation is independent of UI/install mechanics, so a future
 //! signature verifier can strengthen this trust boundary without changing UI.
-use crate::{Options, Result};
+use crate::Result;
 pub use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{fs, io::Write, path::Path, time::Duration};
 
 pub const RELEASES: &str = "https://github.com/alcnaka/AlcMute/releases";
 const API: &str = "https://api.github.com/repos/alcnaka/AlcMute/releases";
 pub const MAX_SETUP_SIZE: u64 = 128 * 1024 * 1024;
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Preferences {
-    pub auto_check: bool,
-}
-impl Default for Preferences {
-    fn default() -> Self {
-        Self { auto_check: true }
-    }
-}
-impl Preferences {
-    pub fn load(options: &Options) -> Result<Self> {
-        let path = options.data_dir.join("updates.toml");
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        toml::from_str(&fs::read_to_string(path).map_err(|e| e.to_string())?)
-            .map_err(|e| format!("更新設定を読み込めません（自動確認を停止）: {e}"))
-    }
-    pub fn save(&self, options: &Options) -> Result<()> {
-        fs::create_dir_all(&options.data_dir).map_err(|e| e.to_string())?;
-        let pending = options.data_dir.join("updates.pending.toml");
-        let mut file = fs::File::create(&pending).map_err(|e| e.to_string())?;
-        file.write_all(toml::to_string(self).map_err(|e| e.to_string())?.as_bytes())
-            .and_then(|_| file.sync_all())
-            .map_err(|e| e.to_string())?;
-        drop(file);
-        super::settings_store::replace(&pending, &options.data_dir.join("updates.toml"))
-    }
-}
 #[derive(Clone, Debug, Deserialize)]
 pub struct Asset {
     pub name: String,
@@ -374,31 +344,5 @@ mod tests {
         }
         assert!(parse_response(200, "not JSON").is_err());
         assert!(parse_response(200,r#"{"tag_name":"v0.3.1","html_url":"https://evil.test/","draft":false,"prerelease":false,"assets":[]}"#).is_err());
-    }
-    #[test]
-    fn update_preferences_are_separate_and_preserve_v022_settings() {
-        let dir = std::env::temp_dir().join(format!("alcmute-update-prefs-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let options = Options {
-            data_dir: dir.clone(),
-            benchmark: true,
-        };
-        let original = "shortcut = 'KeyK+KeyL'\n";
-        fs::write(dir.join("settings.toml"), original).unwrap();
-        assert!(Preferences::load(&options).unwrap().auto_check);
-        Preferences { auto_check: false }.save(&options).unwrap();
-        assert!(!Preferences::load(&options).unwrap().auto_check);
-        assert_eq!(
-            fs::read_to_string(dir.join("settings.toml")).unwrap(),
-            original
-        );
-        crate::settings_store::validate(original).unwrap();
-        fs::write(dir.join("updates.toml"), "auto_check = [").unwrap();
-        assert!(Preferences::load(&options).is_err());
-        assert_eq!(
-            fs::read_to_string(dir.join("settings.toml")).unwrap(),
-            original
-        );
-        fs::remove_dir_all(dir).unwrap();
     }
 }

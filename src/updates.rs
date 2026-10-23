@@ -1,6 +1,6 @@
 use crate::{update_install, Settings, Tray};
 use alcmute_core::{
-    updater::{self, Preferences, Release},
+    updater::{self, Release},
     Options,
 };
 use slint::ComponentHandle;
@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 struct State {
-    preferences: Preferences,
+    auto_check: bool,
     message: String,
     latest: Option<Release>,
     busy: bool,
@@ -23,13 +23,13 @@ pub struct Updates {
 }
 impl Updates {
     pub fn new(options: Options, tray: slint::Weak<Tray>) -> Self {
-        let (preferences, message) = match Preferences::load(&options) {
-            Ok(p) => (p, String::new()),
-            Err(e) => (Preferences { auto_check: false }, e),
+        let (auto_check, message) = match alcmute_core::Config::load(&options) {
+            Ok(config) => (config.auto_check_updates, String::new()),
+            Err(error) => (false, error),
         };
         Self {
             state: Arc::new(Mutex::new(State {
-                preferences,
+                auto_check,
                 message,
                 latest: None,
                 busy: false,
@@ -41,7 +41,7 @@ impl Updates {
         }
     }
     pub fn start(&self) {
-        if !self.options.benchmark && self.state.lock().unwrap().preferences.auto_check {
+        if !self.options.benchmark && self.state.lock().unwrap().auto_check {
             self.check_inner(true);
         }
     }
@@ -65,32 +65,18 @@ impl Updates {
         let service = self.clone();
         ui.on_install_update(move || service.install());
         let service = self.clone();
-        ui.on_update_preferences(move |enabled| match service.save_preferences(enabled) {
-            Ok(()) => {
-                if let Some(ui) = service
-                    .window
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .and_then(slint::Weak::upgrade)
-                {
-                    ui.set_auto_check_updates(enabled);
-                }
-                true
+        ui.on_update_preferences(move |enabled| {
+            service.accept_saved(enabled);
+            if let Some(ui) = service
+                .window
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(slint::Weak::upgrade)
+            {
+                ui.set_auto_check_updates(enabled);
             }
-            Err(error) => {
-                if let Some(ui) = service
-                    .window
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .and_then(slint::Weak::upgrade)
-                {
-                    ui.set_save_ok(false);
-                    ui.set_message(error.into());
-                }
-                false
-            }
+            true
         });
         let service = self.clone();
         ui.on_release_page(move || {
@@ -119,16 +105,12 @@ impl Updates {
         }
     }
     pub fn restore_editor(&self, ui: &Settings) {
-        let enabled = self.state.lock().unwrap().preferences.auto_check;
+        let enabled = self.state.lock().unwrap().auto_check;
         ui.set_auto_check_updates(enabled);
         ui.set_saved_auto_check_updates(enabled);
     }
-    pub fn save_preferences(&self, enabled: bool) -> Result<(), String> {
-        let preferences = Preferences {
-            auto_check: enabled,
-        };
-        preferences.save(&self.options)?;
-        self.state.lock().unwrap().preferences = preferences;
+    pub fn accept_saved(&self, enabled: bool) {
+        self.state.lock().unwrap().auto_check = enabled;
         if let Some(ui) = self
             .window
             .lock()
@@ -138,7 +120,6 @@ impl Updates {
         {
             ui.set_saved_auto_check_updates(enabled);
         }
-        Ok(())
     }
     pub fn check(&self) {
         self.check_inner(false);

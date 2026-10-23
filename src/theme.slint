@@ -1,0 +1,18 @@
+import { Palette } from "std-widgets.slint";
+
+export global AppTheme {
+    // Palette colors remain reactive to the operating system in automatic mode.
+    out property <bool> dark: Palette.foreground == #ffffff;
+    out property <brush> background: Palette.background;
+    out property <brush> foreground: Palette.foreground;
+    out property <brush> surface: Palette.alternate-background;
+    out property <brush> border: Palette.border;
+    out property <brush> accent: Palette.accent-background;
+    out property <color> warning: dark ? #efb45d : #8a4b00;
+    out property <color> error: dark ? #ff9292 : #b02030;
+    out property <color> success: dark ? #7ed5a0 : #146c3a;
+    out property <color> shadow: dark ? #0008 : #0003;
+    public function apply(index: int) {
+        Palette.color-scheme = index == 1 ? ColorScheme.light : index == 2 ? ColorScheme.dark : ColorScheme.unknown;
+    }
+}
