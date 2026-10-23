@@ -150,10 +150,21 @@ slint::slint! {
                     Button { text: "ミュート切り替え"; enabled: root.can-toggle && !root.capturing; clicked => {root.toggle();} }
                 }
                 Rectangle { height: 1px; background: #888; opacity: 0.25; }
-                ScrollView {
+                scroll-frame := Rectangle {
+                    property <bool> has-overflow: settings-scroll.content-height > settings-scroll.visible-height + 1px;
                     vertical-stretch: 1;
+                    min-height: 60px;
+                    background: transparent;
+                    Rectangle {
+                        x: parent.width - self.width; width: 14px; height: parent.height;
+                        border-radius: 7px; background: #8882;
+                    }
+                    settings-scroll := ScrollView {
+                    width: parent.width; height: parent.height;
+                    vertical-scrollbar-policy: always-on;
+                    horizontal-scrollbar-policy: always-off;
                     VerticalBox {
-                        padding: 4px; spacing: 12px; alignment: start;
+                        padding: 4px; padding-right: 22px; spacing: 12px; alignment: start;
                         SectionTitle { text: "操作"; }
                         HorizontalBox {
                             FieldLabel { text: "ミュート切り替えのショートカット"; horizontal-stretch: 0; }
@@ -233,6 +244,18 @@ slint::slint! {
                         Button { text: "すべての設定を初期化"; enabled: !root.capturing; clicked => {root.reset-all();} }
                         Hint { text: "確認後に保存済み設定を削除し、自動起動も無効にします。"; }
                         Button { text: "ツールを終了"; clicked => {root.cancel-capture(); root.quit-confirmed();} }
+                    }
+                    }
+                    Rectangle {
+                        width: parent.width - 16px; height: 16px;
+                        visible: scroll-frame.has-overflow && settings-scroll.content-y < -1px;
+                        background: @linear-gradient(180deg, #0006, #0000);
+                    }
+                    Rectangle {
+                        y: parent.height - self.height;
+                        width: parent.width - 16px; height: 16px;
+                        visible: scroll-frame.has-overflow && settings-scroll.content-height + settings-scroll.content-y > settings-scroll.visible-height + 1px;
+                        background: @linear-gradient(0deg, #0006, #0000);
                     }
                 }
                 Rectangle { height: 1px; background: #888; opacity: 0.25; }
