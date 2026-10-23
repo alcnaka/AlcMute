@@ -43,6 +43,8 @@ Release前には実VRChatでの操作、トレイ・ショートカット、二�
 
 ## 構成
 
+公開Releaseを使わない更新試験は[ローカル更新テスト](docs/local-update-testing.md)を参照してください。
+
 ```text
 src/                  Slint設定画面・トレイ・キー記録
 crates/alcmute-core/   OSC・ショートカット・設定・Windows連携

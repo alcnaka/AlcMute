@@ -79,43 +79,82 @@ impl Release {
         )
     }
 }
-fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .timeout_connect(Some(Duration::from_secs(5)))
-        .max_redirects(0)
-        .https_only(true)
-        .build()
-        .into()
+mod installation;
+pub use installation::install_update;
+
+#[derive(Default)]
+struct Client {
+    #[cfg(test)]
+    local: Option<String>,
+}
+impl Client {
+    fn https_only(&self) -> bool {
+        #[cfg(test)]
+        if self.local.is_some() {
+            return false;
+        }
+        true
+    }
+    fn endpoint(&self, official: &str) -> Result<String> {
+        #[cfg(test)]
+        if let Some(base) = &self.local {
+            // Only unit-test code can construct a local client. Metadata still
+            // contains canonical GitHub URLs and uses the production validators.
+            let path = if let Some(path) = official.strip_prefix(API) {
+                format!("/api{path}")
+            } else if let Some(path) = official.strip_prefix(RELEASES) {
+                format!("/releases{path}")
+            } else {
+                return Err("Test transport rejected an external URL".into());
+            };
+            return Ok(format!("{base}{path}"));
+        }
+        Ok(official.to_string())
+    }
+    fn agent(&self) -> ureq::Agent {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(30)))
+            .timeout_connect(Some(Duration::from_secs(5)))
+            .max_redirects(0)
+            .https_only(self.https_only())
+            .build()
+            .into()
+    }
+    fn fetch_version(&self, version: &Version) -> Result<Release> {
+        let release = self
+            .fetch(&format!("{API}/tags/v{version}"))?
+            .ok_or("Release not found")?;
+        if release.version()? != *version {
+            return Err("Release version mismatch".into());
+        }
+        Ok(release)
+    }
+    fn fetch(&self, endpoint: &str) -> Result<Option<Release>> {
+        let mut response = match self
+            .agent()
+            .get(&self.endpoint(endpoint)?)
+            .header("User-Agent", concat!("AlcMute/", env!("CARGO_PKG_VERSION")))
+            .header("Accept", "application/vnd.github+json")
+            .call()
+        {
+            Ok(value) => value,
+            Err(ureq::Error::StatusCode(status)) => return parse_response(status, ""),
+            Err(e) => return Err(format!("更新情報を取得できません: {e}")),
+        };
+        let text = response
+            .body_mut()
+            .with_config()
+            .limit(2 * 1024 * 1024)
+            .read_to_string()
+            .map_err(|e| e.to_string())?;
+        parse_response(response.status().as_u16(), &text)
+    }
 }
 pub fn fetch_latest() -> Result<Option<Release>> {
-    fetch(&format!("{API}/latest"))
+    Client::default().fetch(&format!("{API}/latest"))
 }
 pub fn fetch_version(version: &Version) -> Result<Release> {
-    let release = fetch(&format!("{API}/tags/v{version}"))?.ok_or("Release not found")?;
-    if release.version()? != *version {
-        return Err("Release version mismatch".into());
-    }
-    Ok(release)
-}
-fn fetch(endpoint: &str) -> Result<Option<Release>> {
-    let mut response = match agent()
-        .get(endpoint)
-        .header("User-Agent", concat!("AlcMute/", env!("CARGO_PKG_VERSION")))
-        .header("Accept", "application/vnd.github+json")
-        .call()
-    {
-        Ok(value) => value,
-        Err(ureq::Error::StatusCode(status)) => return parse_response(status, ""),
-        Err(e) => return Err(format!("更新情報を取得できません: {e}")),
-    };
-    let text = response
-        .body_mut()
-        .with_config()
-        .limit(2 * 1024 * 1024)
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
-    parse_response(response.status().as_u16(), &text)
+    Client::default().fetch_version(version)
 }
 fn parse_response(status: u16, text: &str) -> Result<Option<Release>> {
     if status == 404 {
@@ -143,41 +182,45 @@ fn allowed_redirect(url: &url::Url) -> bool {
             )
         )
 }
-fn download(asset: &Asset, limit: u64) -> Result<Vec<u8>> {
-    let mut current = url::Url::parse(&asset.browser_download_url).map_err(|e| e.to_string())?;
-    for _ in 0..5 {
-        if !allowed_redirect(&current) {
-            return Err("Untrusted download redirect".into());
+impl Client {
+    fn download(&self, asset: &Asset, limit: u64) -> Result<Vec<u8>> {
+        let mut current =
+            url::Url::parse(&asset.browser_download_url).map_err(|e| e.to_string())?;
+        for _ in 0..5 {
+            if !allowed_redirect(&current) {
+                return Err("Untrusted download redirect".into());
+            }
+            let mut response = self
+                .agent()
+                .get(&self.endpoint(current.as_str())?)
+                .header("User-Agent", "AlcMute")
+                .call()
+                .map_err(|e| e.to_string())?;
+            if response.status().is_redirection() {
+                let location = response
+                    .headers()
+                    .get("location")
+                    .and_then(|v| v.to_str().ok())
+                    .ok_or("Missing redirect location")?;
+                current = current.join(location).map_err(|e| e.to_string())?;
+                continue;
+            }
+            if !response.status().is_success() {
+                return Err("Asset download failed".into());
+            }
+            let bytes = response
+                .body_mut()
+                .with_config()
+                .limit(limit)
+                .read_to_vec()
+                .map_err(|e| e.to_string())?;
+            if bytes.len() as u64 != asset.size {
+                return Err("Asset size mismatch".into());
+            }
+            return Ok(bytes);
         }
-        let mut response = agent()
-            .get(current.as_str())
-            .header("User-Agent", "AlcMute")
-            .call()
-            .map_err(|e| e.to_string())?;
-        if response.status().is_redirection() {
-            let location = response
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok())
-                .ok_or("Missing redirect location")?;
-            current = current.join(location).map_err(|e| e.to_string())?;
-            continue;
-        }
-        if !response.status().is_success() {
-            return Err("Asset download failed".into());
-        }
-        let bytes = response
-            .body_mut()
-            .with_config()
-            .limit(limit)
-            .read_to_vec()
-            .map_err(|e| e.to_string())?;
-        if bytes.len() as u64 != asset.size {
-            return Err("Asset size mismatch".into());
-        }
-        return Ok(bytes);
+        Err("Too many download redirects".into())
     }
-    Err("Too many download redirects".into())
 }
 pub fn checksum(manifest: &str, name: &str) -> Result<[u8; 32]> {
     let matches: Vec<_> = manifest
@@ -215,43 +258,50 @@ pub fn verify(bytes: &[u8], size: u64, hash: &[u8; 32]) -> Result<()> {
     }
     Ok(())
 }
-pub fn release_hash(release: &Release) -> Result<[u8; 32]> {
-    let setup = release.setup()?;
-    let manifest = release.asset("SHA256SUMS.txt", 64 * 1024)?;
-    let bytes = download(manifest, 64 * 1024)?;
-    let hash = checksum(
-        std::str::from_utf8(&bytes).map_err(|e| e.to_string())?,
-        &setup.name,
-    )?;
-    if let Some(digest) = &setup.digest {
-        let expected = format!(
-            "sha256:{}",
-            hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
-        );
-        if digest != &expected {
-            return Err("GitHub digest and SHA256SUMS disagree".into());
+impl Client {
+    fn release_hash(&self, release: &Release) -> Result<[u8; 32]> {
+        let setup = release.setup()?;
+        let manifest = release.asset("SHA256SUMS.txt", 64 * 1024)?;
+        let bytes = self.download(manifest, 64 * 1024)?;
+        let hash = checksum(
+            std::str::from_utf8(&bytes).map_err(|e| e.to_string())?,
+            &setup.name,
+        )?;
+        if let Some(digest) = &setup.digest {
+            let expected = format!(
+                "sha256:{}",
+                hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
+            );
+            if digest != &expected {
+                return Err("GitHub digest and SHA256SUMS disagree".into());
+            }
         }
+        Ok(hash)
     }
-    Ok(hash)
+    fn stage(&self, release: &Release, dir: &Path) -> Result<std::path::PathBuf> {
+        let setup = release.setup()?;
+        let hash = self.release_hash(release)?;
+        let bytes = self.download(setup, MAX_SETUP_SIZE)?;
+        verify(&bytes, setup.size, &hash)?;
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let path = dir.join(&setup.name);
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|e| e.to_string())?;
+        Ok(path)
+    }
+}
+pub fn release_hash(release: &Release) -> Result<[u8; 32]> {
+    Client::default().release_hash(release)
 }
 pub fn stage(release: &Release, dir: &Path) -> Result<std::path::PathBuf> {
-    let setup = release.setup()?;
-    let hash = release_hash(release)?;
-    let bytes = download(setup, MAX_SETUP_SIZE)?;
-    verify(&bytes, setup.size, &hash)?;
-    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let path = dir.join(&setup.name);
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-    file.write_all(&bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|e| e.to_string())?;
-    Ok(path)
+    Client::default().stage(release, dir)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

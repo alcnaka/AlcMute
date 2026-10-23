@@ -66,71 +66,7 @@ pub fn helper(args: &[String]) -> Result<(), String> {
         {
             return Err("Untrusted staging path".into());
         }
-        // Re-fetch the official manifest; command-line hashes/paths alone are never authority.
-        let release = updater::fetch_version(&version)?;
-        let hash = updater::release_hash(&release)?;
-        use std::{io::Read, os::windows::fs::OpenOptionsExt};
-        // Deny modification/deletion from validation until Setup exits.
-        let mut locked_setup = fs::OpenOptions::new()
-            .read(true)
-            .share_mode(1)
-            .open(&setup)
-            .map_err(|e| e.to_string())?;
-        let metadata = locked_setup.metadata().map_err(|e| e.to_string())?;
-        if metadata.len() > updater::MAX_SETUP_SIZE {
-            return Err("Oversized installer".into());
-        }
-        let mut bytes = Vec::new();
-        locked_setup
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
-        updater::verify(&bytes, release.setup()?.size, &hash)?;
-        drop(bytes);
-        // Never auto-downgrade an installation changed since the notification.
-        let current = semver_version(&windows::installed_version()?)?;
-        if version <= current {
-            return Err("更新先は現在のバージョンより新しくありません".into());
-        }
-        windows::wait_for_update_parent(pid, &install.join("alcmute.exe"))
-            .map_err(|error| format!("更新前のAlcMuteの終了確認に失敗しました: {error}"))?;
-        let previous = setup
-            .parent()
-            .ok_or("Missing staging directory")?
-            .join("previous-alcmute.exe");
-        let mut backup = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&previous)
-            .map_err(|e| e.to_string())?;
-        std::io::copy(
-            &mut fs::File::open(install.join("alcmute.exe")).map_err(|e| e.to_string())?,
-            &mut backup,
-        )
-        .and_then(|_| backup.sync_all())
-        .map_err(|e| e.to_string())?;
-        drop(backup);
-        let status = Command::new(&setup)
-            .arg("/VERYSILENT")
-            .arg("/SUPPRESSMSGBOXES")
-            .arg("/NORESTART")
-            .arg(format!("/DIR={}", windows::normal_path(&install)?))
-            .arg(format!("/LOG={}", setup.with_extension("log").display()))
-            .status()
-            .map_err(|e| format!("更新インストーラーを起動できませんでした: {e}"))?;
-        if !status.success() {
-            return Err(format!("インストールに失敗しました: {status}"));
-        }
-        if windows::installed_version()? != version.to_string()
-            || windows::executable_version(&install.join("alcmute.exe"))? != version.to_string()
-        {
-            return Err("インストール後のバージョンを確認できませんでした".into());
-        }
-        Command::new(install.join("alcmute.exe"))
-            .arg("--background")
-            .arg("--data-dir")
-            .arg(&options.data_dir)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        updater::install_update(&setup, &version, pid, &install, &options.data_dir)?;
         Ok(())
     })();
     if let Err(error) = &result {
