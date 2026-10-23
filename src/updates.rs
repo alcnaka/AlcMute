@@ -42,7 +42,7 @@ impl Updates {
     }
     pub fn start(&self) {
         if !self.options.benchmark && self.state.lock().unwrap().preferences.auto_check {
-            self.check();
+            self.check_inner(true);
         }
     }
     pub fn attach(&self, ui: &Settings) {
@@ -108,17 +108,18 @@ impl Updates {
         }
     }
     pub fn check(&self) {
+        self.check_inner(false);
+    }
+    fn check_inner(&self, automatic: bool) {
         let mut state = self.state.lock().unwrap();
         if state.busy {
             return;
         }
-        if state
-            .last
-            .is_some_and(|last| last.elapsed() < Duration::from_secs(60))
+        if automatic
+            && state
+                .last
+                .is_some_and(|last| last.elapsed() < Duration::from_secs(60))
         {
-            state.message = "更新確認の間隔は60秒です。少し待ってから再試行してください。".into();
-            drop(state);
-            self.refresh();
             return;
         }
         state.last = Some(Instant::now());
