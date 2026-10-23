@@ -29,6 +29,23 @@ try {
     $count=[BitConverter]::ToUInt16($bytes,4)
     $dimensions=for ($index=0;$index -lt $count;$index++) { $value=$bytes[6+14*$index]; if ($value -eq 0) {256} else {[int]$value} }
     foreach ($required in @(16,24,32,48,256)) {if ($required -notin $dimensions) {throw "Missing icon size: $required"}}
+    # Check image contents too: correct dimensions alone do not detect stale artwork.
+    $expectedIcon=[IO.File]::ReadAllBytes((Join-Path (Split-Path $PSScriptRoot) 'assets/app.ico'))
+    if ([BitConverter]::ToUInt16($expectedIcon,4) -ne $count) {throw 'Product icon count mismatch'}
+    for ($index=0;$index -lt $count;$index++) {
+        $entry=6+16*$index
+        $expectedSize=[BitConverter]::ToUInt32($expectedIcon,$entry+8)
+        $expectedOffset=[BitConverter]::ToUInt32($expectedIcon,$entry+12)
+        $expectedBytes=[byte[]]::new($expectedSize)
+        [Array]::Copy($expectedIcon,$expectedOffset,$expectedBytes,0,$expectedSize)
+        $id=[BitConverter]::ToUInt16($bytes,6+14*$index+12)
+        $iconResource=[AlcMuteResourceProbe]::FindResource($module,[IntPtr][int]$id,[IntPtr]3)
+        if ($iconResource -eq [IntPtr]::Zero) {throw "Missing product icon image: $id"}
+        $actualSize=[AlcMuteResourceProbe]::SizeofResource($module,$iconResource)
+        $actualBytes=[byte[]]::new($actualSize)
+        [Runtime.InteropServices.Marshal]::Copy([AlcMuteResourceProbe]::LockResource([AlcMuteResourceProbe]::LoadResource($module,$iconResource)),$actualBytes,0,$actualBytes.Length)
+        if ([Convert]::ToBase64String($expectedBytes) -cne [Convert]::ToBase64String($actualBytes)) {throw "Stale product icon artwork: $id"}
+    }
 } finally { [void][AlcMuteResourceProbe]::FreeLibrary($module) }
 $binary=[Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($exe))
 if (-not $binary.Contains([IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) 'LICENSE')))) {throw 'Missing MIT license'}
