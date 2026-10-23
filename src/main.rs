@@ -57,6 +57,32 @@ slint::slint! {
         Rectangle { y: parent.height - 5px; width: parent.width; height: 1px; background: #65b8ff; opacity: touch.has-hover || root.has-focus ? 1 : 0.4; }
         touch := TouchArea { enabled: root.enabled; clicked => {root.focus(); root.clicked();} }
     }
+    component OutlineAction inherits FocusScope {
+        in property <string> text;
+        callback clicked();
+        width: max(130px, label.preferred-width + 28px); height: 36px;
+        horizontal-stretch: 0; vertical-stretch: 0;
+        focus-on-tab-navigation: root.enabled;
+        accessible-role: button; accessible-label: root.text; accessible-enabled: root.enabled;
+        accessible-action-default => {if root.enabled {root.clicked();}}
+        opacity: root.enabled ? 1 : 0.45;
+        key-pressed(event) => {
+            if root.enabled && (event.text == " " || event.text == Key.Return) {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+        Rectangle {
+            border-radius: 5px; border-width: 1px;
+            border-color: root.has-focus ? #438de8 : #8887;
+            background: touch.pressed ? #8883 : touch.has-hover ? #8882 : transparent;
+        }
+        label := Text {
+            x: 14px; width: parent.width - 28px; height: parent.height;
+            text: root.text; font-size: 14px; vertical-alignment: center;
+        }
+        touch := TouchArea { enabled: root.enabled; clicked => {root.focus(); root.clicked();} }
+    }
     component RadioChoice inherits FocusScope {
         in property <string> text;
         in property <bool> checked;
@@ -299,7 +325,7 @@ slint::slint! {
                     if root.dirty: Text { text: "保存されていない設定があります"; color: #d58b28; font-size: 15px; wrap: word-wrap; }
                     if root.message != "": Text { text: root.message; wrap: word-wrap; color: root.save-ok ? #16814b : #b04030; font-size: 14px; }
                     HorizontalBox {
-                        TextAction { text: "終了…"; clicked => {root.cancel-capture(); root.quit-confirmed();} }
+                        OutlineAction { text: "アプリを終了…"; clicked => {root.cancel-capture(); root.quit-confirmed();} }
                         Rectangle { horizontal-stretch: 1; }
                         Button { text: "保存"; min-width: 100px; enabled: root.dirty && !root.capturing; primary: root.dirty && !root.capturing; clicked => {root.save(root.target, root.listen, root.shortcut, root.autostart);} }
                         Button { text: "閉じる"; min-width: 100px; clicked => {root.cancel-capture(); root.dismiss();} }
