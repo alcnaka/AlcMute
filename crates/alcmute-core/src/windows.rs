@@ -161,13 +161,28 @@ pub fn wait_for_update_parent(pid: u32, expected: &std::path::Path) -> Result<()
         };
     }
     let handle = Handle(raw);
+    // The parent normally exits while the helper downloads/verifies the manifest.
+    // Its process object can remain open after exit, but its image name may no
+    // longer be queryable (ERROR_GEN_FAILURE). A signaled handle is already safe.
+    if unsafe { WaitForSingleObject(handle.0, 0) } == WAIT_OBJECT_0 {
+        return Ok(());
+    }
     let mut text = vec![0u16; 32768];
     let mut size = text.len() as u32;
     if unsafe { QueryFullProcessImageNameW(handle.0, 0, text.as_mut_ptr(), &mut size) } == 0 {
-        return Err(std::io::Error::last_os_error().to_string());
+        let error = std::io::Error::last_os_error();
+        // Cover exit between the first liveness check and the image query.
+        if unsafe { WaitForSingleObject(handle.0, 0) } == WAIT_OBJECT_0 {
+            return Ok(());
+        }
+        return Err(format!("Cannot query running update parent {pid}: {error}"));
     }
     let actual = std::path::PathBuf::from(String::from_utf16_lossy(&text[..size as usize]));
-    if std::fs::canonicalize(actual).ok() != std::fs::canonicalize(expected).ok() {
+    let actual = std::fs::canonicalize(actual)
+        .map_err(|e| format!("Cannot resolve update parent image: {e}"))?;
+    let expected = std::fs::canonicalize(expected)
+        .map_err(|e| format!("Cannot resolve expected parent image: {e}"))?;
+    if actual != expected {
         return Err("Update parent executable mismatch".into());
     }
     if unsafe { WaitForSingleObject(handle.0, 30000) } != WAIT_OBJECT_0 {
@@ -621,6 +636,39 @@ pub fn confirm_settings_reset() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn exited_update_parent_is_already_stopped() {
+        use std::os::windows::process::CommandExt;
+        let exe = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32")
+            .join("cmd.exe");
+        let mut child = std::process::Command::new(&exe)
+            .args(["/d", "/c", "exit 0"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        child.wait().unwrap();
+        // Keep Child alive so the exited Windows process object still exists.
+        let result = super::wait_for_update_parent(child.id(), &exe);
+        assert!(
+            result.is_ok(),
+            "Exited update parent must be accepted: {result:?}"
+        );
+    }
+    #[test]
+    fn live_update_parent_still_requires_the_expected_image() {
+        let result = super::wait_for_update_parent(std::process::id(), &std::env::temp_dir());
+        assert!(result
+            .unwrap_err()
+            .contains("Update parent executable mismatch"));
+        let missing = std::env::temp_dir().join("alcmute-nonexistent-parent-image.exe");
+        let result = super::wait_for_update_parent(std::process::id(), &missing);
+        assert!(result
+            .unwrap_err()
+            .contains("Cannot resolve expected parent image"));
+    }
     use super::*;
     use std::path::Path;
     #[test]

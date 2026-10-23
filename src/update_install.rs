@@ -91,7 +91,8 @@ pub fn helper(args: &[String]) -> Result<(), String> {
         if version <= current {
             return Err("更新先は現在のバージョンより新しくありません".into());
         }
-        windows::wait_for_update_parent(pid, &install.join("alcmute.exe"))?;
+        windows::wait_for_update_parent(pid, &install.join("alcmute.exe"))
+            .map_err(|error| format!("更新前のAlcMuteの終了確認に失敗しました: {error}"))?;
         let previous = setup
             .parent()
             .ok_or("Missing staging directory")?
@@ -115,7 +116,7 @@ pub fn helper(args: &[String]) -> Result<(), String> {
             .arg(format!("/DIR={}", windows::normal_path(&install)?))
             .arg(format!("/LOG={}", setup.with_extension("log").display()))
             .status()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("更新インストーラーを起動できませんでした: {e}"))?;
         if !status.success() {
             return Err(format!("インストールに失敗しました: {status}"));
         }
