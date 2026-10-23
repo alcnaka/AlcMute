@@ -89,5 +89,12 @@ jobs:
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           if ($env:GITHUB_REF_NAME -cne "v$version") { throw 'Tag/version mismatch' }
-          gh release create $env:GITHUB_REF_NAME --verify-tag --draft --title "AlcMute $env:GITHUB_REF_NAME" --generate-notes "dist/AlcMute-$version-Setup.exe" "dist/AlcMute-$version-Portable.zip" dist/SHA256SUMS.txt
+          $notesJson = gh api --method POST "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" -f "tag_name=$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) { throw 'Release notes generation failed' }
+          $notes = ($notesJson | ConvertFrom-Json).body
+          $assetRoot = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_REF_NAME/assets/img"
+          $badge = '<a href="https://slint.dev/"><picture><source media="(prefers-color-scheme: dark)" srcset="' + $assetRoot + '/MadeWithSlint-logo-dark.svg"><img alt="#MadeWithSlint" src="' + $assetRoot + '/MadeWithSlint-logo-light.svg" width="212" height="97"></picture></a>'
+          $notesPath = Join-Path $env:RUNNER_TEMP 'alcmute-release-notes.md'
+          [IO.File]::WriteAllText($notesPath, "$notes`n`n$badge`n", [Text.UTF8Encoding]::new($false))
+          gh release create $env:GITHUB_REF_NAME --verify-tag --draft --title "AlcMute $env:GITHUB_REF_NAME" --notes-file $notesPath "dist/AlcMute-$version-Setup.exe" "dist/AlcMute-$version-Portable.zip" dist/SHA256SUMS.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
