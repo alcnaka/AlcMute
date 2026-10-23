@@ -134,6 +134,7 @@ slint::slint! {
         in-out property <string> listen;
         in-out property <string> shortcut;
         in-out property <string> shortcut-label;
+        in-out property <bool> distinguish-modifier-sides: true;
         in-out property <bool> autostart;
         in property <bool> autostart-available;
         in-out property <bool> show-settings-on-startup: true;
@@ -227,6 +228,12 @@ slint::slint! {
                                 ResetButton { setting-name: "ショートカット"; enabled: !root.capturing; clicked => {root.reset-field(2);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
+                            CheckBox {
+                                text: "修飾キーの左右を区別する";
+                                checked <=> root.distinguish-modifier-sides;
+                                enabled: !root.capturing;
+                            }
+                            Hint { text: "次のキー記録に適用します。登録済みのキーは変わりません。"; }
                             Button {
                                 text: root.capturing ? "記録をキャンセル（Esc）" : root.shortcut-label + "　 キーを変更";
                                 clicked => {
@@ -891,6 +898,7 @@ struct CaptureState {
     active: bool,
     armed: bool,
     finishing: bool,
+    distinguish_sides: bool,
     original: String,
     pending_shortcut: Option<String>,
 }
@@ -960,6 +968,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
                         active: true,
                         armed: true,
                         original: ui.get_shortcut().to_string(),
+                        distinguish_sides: ui.get_distinguish_modifier_sides(),
                         ..Default::default()
                     };
                     ui.set_capture_hint(
@@ -1017,7 +1026,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
             return;
         }
         if !keys.is_empty() && state.armed && !state.finishing {
-            match shortcut::from_keys(&keys) {
+            match shortcut::from_keys(&keys, state.distinguish_sides) {
                 Ok(Some(value)) => {
                     if state.stage_shortcut(value.clone()) {
                         ui.set_capture_hint(
@@ -1029,7 +1038,16 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
                         );
                     }
                 }
-                Ok(None) => {}
+                Ok(None) => {
+                    if !state.distinguish_sides
+                        && state.pending_shortcut.is_none()
+                        && !keys.is_empty()
+                    {
+                        ui.set_capture_hint(
+                            "通常キー、または種類の異なる修飾キーを組み合わせてください".into(),
+                        );
+                    }
+                }
                 Err(error) => {
                     state.pending_shortcut = None;
                     ui.set_capture_hint(error.into());
@@ -1147,6 +1165,24 @@ mod double_click_tests {
         let original = Config::default();
         fill_config(&ui, &original);
         assert!(!ui.get_dirty());
+        assert!(ui.get_distinguish_modifier_sides());
+        for value in ["LeftCtrl+RightCtrl", "Ctrl+Alt+KeyM"] {
+            let existing = Config {
+                shortcut: value.into(),
+                ..original.clone()
+            };
+            fill_config(&ui, &existing);
+            for mode in [false, true] {
+                ui.set_distinguish_modifier_sides(mode);
+                assert_eq!(ui.get_shortcut(), value);
+                assert_eq!(ui.get_shortcut_label(), shortcut::label(value));
+                assert!(
+                    !ui.get_dirty(),
+                    "recording options must not edit saved settings"
+                );
+            }
+        }
+        fill_config(&ui, &original);
         assert!(ui.get_double_click_toggle_selected());
         assert!(!ui.get_double_click_settings_selected());
         ui.set_target("127.0.0.1:9010".into());
