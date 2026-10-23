@@ -49,6 +49,20 @@ Name: "{autodesktop}\AlcMute"; Filename: "{app}\alcmute.exe"; Tasks: desktopicon
 [Registry]
 Root: HKCU; Subkey: "Software\Alcnaka\AlcMute"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
 [Code]
+procedure NotifyShellItem(EventID: Integer; Flags: Cardinal; Path: String; Unused: Integer);
+  external 'SHChangeNotify@shell32.dll stdcall';
+
+procedure RefreshShortcutIcons;
+var Shortcut: String;
+begin
+  { Notify Windows of the changed shortcut and icon, without restarting Explorer. }
+  NotifyShellItem($2000, $1005, ExpandConstant('{app}\alcmute-logo.ico'), 0);
+  Shortcut := ExpandConstant('{group}\AlcMute.lnk');
+  if FileExists(Shortcut) then NotifyShellItem($2000, $1005, Shortcut, 0);
+  Shortcut := ExpandConstant('{autodesktop}\AlcMute.lnk');
+  if FileExists(Shortcut) then NotifyShellItem($2000, $1005, Shortcut, 0);
+end;
+
 function DirectoryHasEntries(const Path: String): Boolean;
 var Entry: TFindRec;
 begin
@@ -108,6 +122,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var Code: Integer;
 begin
   if CurStep = ssPostInstall then begin
+    RefreshShortcutIcons;
     { [Run] entries execute BEFORE ssPostInstall. Start the app only after migration. }
     if not Exec(ExpandConstant('{app}\alcmute.exe'), '--install-migrate', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       RaiseException('自動起動の移行に失敗しました。既存の登録を確認し、AlcMuteのログを参照してください。');
