@@ -571,6 +571,9 @@ pub fn foreground_is_ours() -> bool {
         pid == std::process::id()
     }
 }
+pub fn foreground_key_event(name: &str, down: bool) {
+    crate::shortcut::foreground_key_event(name, down);
+}
 
 pub fn double_click_time() -> u32 {
     unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() }

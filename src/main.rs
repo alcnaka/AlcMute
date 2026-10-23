@@ -944,7 +944,30 @@ fn restore_capture_hotkey(ui: &Settings, controller: &Rc<RefCell<Option<Controll
         }
     }
 }
+fn install_shortcut_input(window: &slint::Window) {
+    window.on_winit_window_event(|_, event| {
+        use slint::winit_030::winit::{
+            event::{ElementState, WindowEvent},
+            keyboard::PhysicalKey,
+        };
+        if let WindowEvent::KeyboardInput {
+            event,
+            is_synthetic: false,
+            ..
+        } = event
+        {
+            if let PhysicalKey::Code(code) = event.physical_key {
+                alcmute_core::windows::foreground_key_event(
+                    &format!("{code:?}"),
+                    event.state == ElementState::Pressed,
+                );
+            }
+        }
+        slint::winit_030::EventResult::Propagate
+    });
+}
 fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, options: Options) {
+    install_shortcut_input(ui.window());
     let capture = Rc::new(RefCell::new(CaptureState::default()));
     let polling = Arc::new(std::sync::atomic::AtomicU64::new(0));
 

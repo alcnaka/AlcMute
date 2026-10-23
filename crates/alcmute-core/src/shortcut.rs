@@ -317,6 +317,20 @@ struct HookState {
     down: Vec<bool>,
     capture: bool,
     recorded: Option<Vec<u16>>,
+    recent: std::collections::VecDeque<InputStamp>,
+}
+#[cfg(feature = "windows-integration")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputSource {
+    Hook,
+    Window,
+}
+#[cfg(feature = "windows-integration")]
+struct InputStamp {
+    vk: usize,
+    down: bool,
+    time: u32,
+    source: InputSource,
 }
 #[cfg(feature = "windows-integration")]
 static HOOK_STATE: HookStorage = HookStorage;
@@ -332,6 +346,7 @@ impl HookStorage {
                 down: vec![false; 256],
                 capture: false,
                 recorded: None,
+                recent: Default::default(),
             })
         }))
     }
@@ -343,6 +358,46 @@ pub(crate) fn take_capture_keys() -> Option<Vec<u16>> {
 
 #[cfg(feature = "windows-integration")]
 impl HookState {
+    fn input_event(
+        &mut self,
+        vk: usize,
+        down: bool,
+        time: u32,
+        source: InputSource,
+        pressed: impl Fn(usize) -> bool,
+    ) -> Vec<HotKey> {
+        if vk >= self.down.len() {
+            return Vec::new();
+        }
+        // Both Windows messages carry the original input timestamp. Remember a
+        // bounded history so even a delayed complete press cannot be replayed.
+        if let Some(index) = self.recent.iter().position(|event| {
+            event.vk == vk && event.down == down && event.time == time && event.source != source
+        }) {
+            self.recent.remove(index);
+            return Vec::new();
+        }
+        if self.recent.len() == 64 {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(InputStamp {
+            vk,
+            down,
+            time,
+            source,
+        });
+        let was_down = self.down[vk];
+        // Window callbacks run after Windows updates the async state. Never
+        // mistake this first keydown for a repeat just because it is already down.
+        self.reconcile(|key| {
+            if key == vk {
+                was_down && pressed(key)
+            } else {
+                pressed(key)
+            }
+        });
+        self.key_event(vk, down)
+    }
     fn reconcile(&mut self, pressed: impl Fn(usize) -> bool) {
         reconcile_keys(&mut self.down, pressed);
         let mut down = [false; 256];
@@ -387,13 +442,31 @@ impl HookState {
 }
 
 #[cfg(feature = "windows-integration")]
-fn process_key_event(vk: usize, down: bool) {
+pub(crate) fn foreground_key_event(name: &str, down: bool) {
+    let vk = match name {
+        "ControlLeft" => Some(0xa2),
+        "ControlRight" => Some(0xa3),
+        "AltLeft" => Some(0xa4),
+        "AltRight" => Some(0xa5),
+        "ShiftLeft" => Some(0xa0),
+        "ShiftRight" => Some(0xa1),
+        "SuperLeft" => Some(0x5b),
+        "SuperRight" => Some(0x5c),
+        _ => key_name_to_vk(name),
+    };
+    if let Some(vk) = vk {
+        let time = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetMessageTime() } as u32;
+        process_key_event(vk as usize, down, time, InputSource::Window);
+    }
+}
+
+#[cfg(feature = "windows-integration")]
+fn process_key_event(vk: usize, down: bool, time: u32, source: InputSource) {
     let fired = HOOK_STATE.with(|state| {
         let mut state = state.lock().unwrap();
-        state.reconcile(|key| unsafe {
+        state.input_event(vk, down, time, source, |key| unsafe {
             windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(key as i32) < 0
-        });
-        state.key_event(vk, down)
+        })
     });
     for key in fired {
         if let Some(route) = crate::HOTKEY_ROUTE.get() {
@@ -466,6 +539,7 @@ impl Drop for Hook {
             s.down.fill(false);
             s.keys.clear();
             s.recorded = None;
+            s.recent.clear();
             s.capture = false;
         });
     }
@@ -504,7 +578,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize)
                 }
                 v => v,
             } as usize;
-            process_key_event(vk, down);
+            process_key_event(vk, down, event.time, InputSource::Hook);
         }
     }
     CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
@@ -513,6 +587,99 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize)
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "windows-integration")]
+    #[test]
+    fn foreground_modifier_chord_works_with_already_updated_async_state() {
+        let key: HotKey = "LeftCtrl+RightCtrl".parse().unwrap();
+        let mut state = HookState {
+            keys: vec![(key, false)],
+            down: vec![false; 256],
+            capture: false,
+            recorded: None,
+            recent: Default::default(),
+        };
+        assert!(state
+            .input_event(0xa2, true, 1, InputSource::Window, |vk| vk == 0xa2)
+            .is_empty());
+        assert_eq!(
+            state.input_event(0xa3, true, 2, InputSource::Window, |vk| vk == 0xa2
+                || vk == 0xa3),
+            vec![key]
+        );
+        assert!(state
+            .input_event(0xa3, true, 3, InputSource::Window, |vk| vk == 0xa2
+                || vk == 0xa3)
+            .is_empty());
+    }
+    #[cfg(feature = "windows-integration")]
+    #[test]
+    fn delayed_complete_press_from_the_other_route_is_not_replayed() {
+        for key in ["LeftCtrl+RightCtrl", "Ctrl+Alt+KeyM", "KeyK+KeyL"] {
+            for first in [InputSource::Hook, InputSource::Window] {
+                let other = if first == InputSource::Hook {
+                    InputSource::Window
+                } else {
+                    InputSource::Hook
+                };
+                let shortcut: HotKey = key.parse().unwrap();
+                let mut state = HookState {
+                    keys: vec![(shortcut, false)],
+                    down: vec![false; 256],
+                    capture: false,
+                    recorded: None,
+                    recent: Default::default(),
+                };
+                let keys: &[usize] = match key {
+                    "LeftCtrl+RightCtrl" => &[0xa2, 0xa3],
+                    "Ctrl+Alt+KeyM" => &[0xa2, 0xa4, 0x4d],
+                    _ => &[0x4b, 0x4c],
+                };
+                let events: Vec<_> = keys
+                    .iter()
+                    .map(|vk| (*vk, true))
+                    .chain(keys.iter().rev().map(|vk| (*vk, false)))
+                    .collect();
+                let mut physical = [false; 256];
+                let mut fires = Vec::new();
+                for (index, (vk, down)) in events.iter().copied().enumerate() {
+                    physical[vk] = down;
+                    fires.extend(
+                        state.input_event(vk, down, index as u32, first, |key| physical[key]),
+                    );
+                }
+                assert_eq!(fires, vec![shortcut], "{key}, {first:?}");
+                for (index, (vk, down)) in events.iter().copied().enumerate() {
+                    assert!(
+                        state
+                            .input_event(vk, down, index as u32, other, |_| false)
+                            .is_empty(),
+                        "{key}, {first:?}"
+                    );
+                }
+                assert!(!state.down.iter().any(|down| *down));
+                state.capture = true;
+                for (index, (vk, down)) in events.iter().copied().enumerate() {
+                    physical[vk] = down;
+                    assert!(state
+                        .input_event(vk, down, 100 + index as u32, first, |key| physical[key])
+                        .is_empty());
+                }
+                state.capture = false;
+                let mut resumed = Vec::new();
+                for (index, (vk, down)) in events.iter().copied().enumerate() {
+                    physical[vk] = down;
+                    resumed.extend(
+                        state.input_event(vk, down, 200 + index as u32, first, |key| physical[key]),
+                    );
+                }
+                assert_eq!(resumed, vec![shortcut]);
+                for time in 1000..1100 {
+                    state.input_event(0x41, false, time, first, |_| false);
+                }
+                assert_eq!(state.recent.len(), 64);
+            }
+        }
+    }
     #[cfg(feature = "windows-integration")]
     #[test]
     fn fresh_default_shortcut_works_on_either_side_without_foreground_input() {
@@ -525,6 +692,7 @@ mod tests {
                     down: vec![false; 256],
                     capture: false,
                     recorded: None,
+                    recent: Default::default(),
                 };
                 assert!(state.key_event(ctrl, true).is_empty());
                 assert!(state.key_event(alt, true).is_empty());
@@ -571,6 +739,7 @@ mod tests {
             down: vec![false; 256],
             capture: false,
             recorded: None,
+            recent: Default::default(),
         };
         state.key_event(0xa2, true);
         state.key_event(0xa4, true);
@@ -607,6 +776,7 @@ mod tests {
             down: vec![false; 256],
             capture: false,
             recorded: None,
+            recent: Default::default(),
         };
         for _ in 0..2 {
             assert!(state.key_event(0x4b, true).is_empty());
@@ -627,6 +797,7 @@ mod tests {
             down: vec![false; 256],
             capture: true,
             recorded: None,
+            recent: Default::default(),
         };
         assert!(state.key_event(0xa3, true).is_empty());
         assert!(state.key_event(0xa4, true).is_empty());

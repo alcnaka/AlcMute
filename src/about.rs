@@ -64,6 +64,7 @@ slint::slint! {
 pub fn show(slot: &Rc<RefCell<Option<About>>>) -> Result<(), String> {
     if slot.borrow().is_none() {
         let ui = About::new().map_err(|e| e.to_string())?;
+        crate::install_shortcut_input(ui.window());
         ui.set_version(
             format!(
                 "{} ({})",
