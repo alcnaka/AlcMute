@@ -659,6 +659,7 @@ fn run(options: Options) -> Result<(), String> {
                 }
             });
             reply.acknowledge();
+            alcmute_core::windows::show_existing_instance_notice();
         });
     })?;
     tray.on_settings(move || show());

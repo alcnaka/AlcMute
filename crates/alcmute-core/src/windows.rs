@@ -126,6 +126,31 @@ pub fn show_error(title: &str, message: &str) {
         );
     }
 }
+/// Called on the existing process's UI thread after activation has been acknowledged.
+pub fn show_existing_instance_notice() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, MessageBoxW, MB_ICONINFORMATION, MB_OK,
+    };
+    let owner = if foreground_is_ours() {
+        unsafe { GetForegroundWindow() }
+    } else {
+        std::ptr::null_mut()
+    };
+    let title: Vec<u16> = "AlcMuteは起動済みです\0".encode_utf16().collect();
+    let message: Vec<u16> =
+        "AlcMuteはすでに起動しているため、既存のAlcMuteの設定画面を表示しました。\0"
+            .encode_utf16()
+            .collect();
+    unsafe {
+        MessageBoxW(
+            owner,
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONINFORMATION,
+        );
+    }
+}
+
 pub fn confirm(title: &str, message: &str) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_YESNO,
