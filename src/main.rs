@@ -100,11 +100,13 @@ slint::slint! {
         in property <bool> saved-autostart;
         in property <bool> saved-show-settings-on-startup;
         in property <int> saved-tray-double-click-action;
+        in property <bool> saved-auto-check-updates;
         out property <bool> dirty: root.target != root.saved-target
             || root.listen != root.saved-listen || root.shortcut != root.saved-shortcut
             || root.autostart != root.saved-autostart
             || root.show-settings-on-startup != root.saved-show-settings-on-startup
-            || root.tray-double-click-action != root.saved-tray-double-click-action;
+            || root.tray-double-click-action != root.saved-tray-double-click-action
+            || root.auto-check-updates != root.saved-auto-check-updates;
         in property <string> config-path;
         in property <bool> can-toggle;
         in property <bool> save-ok;
@@ -119,7 +121,7 @@ slint::slint! {
         callback check-updates();
         callback install-update();
         callback release-page();
-        callback update-preferences(bool);
+        callback update-preferences(bool) -> bool;
         callback save(string, string, string, bool);
         callback toggle();
         callback dismiss();
@@ -218,8 +220,10 @@ slint::slint! {
                         LineEdit { text <=> root.listen; enabled: !root.capturing; }
                         Rectangle { height: 1px; background: #888; opacity: 0.25; }
                         SectionTitle { text: "管理"; }
-                        CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; toggled => {root.update-preferences(self.checked);} }
-                        Hint { text: "更新確認の設定はすぐに保存されます。"; }
+                        HorizontalBox {
+                            CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; }
+                            ResetButton { setting-name: "更新確認"; enabled: !root.capturing; clicked => {root.reset-field(6);} }
+                        }
                         Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
                         if root.update-status != "": Hint { text: root.update-status; }
                         if root.update-available && root.update-installable: Button { text: "ダウンロードして更新"; enabled: !root.update-busy && !root.capturing; clicked => {root.install-update();} }
@@ -437,21 +441,37 @@ fn run(options: Options) -> Result<(), String> {
                 ui.on_about(move || show_about());
                 let weak = ui.as_weak();
                 let controller_save = controller.clone();
+                let updates_save = updates.clone();
                 ui.on_save(move |target, listen, shortcut, autostart| {
                     if let Some(core) = controller_save.borrow_mut().as_mut() {
-                        let result = core.apply(Config {
-                            target: target.trim().into(),
-                            listen: listen.trim().into(),
-                            shortcut: shortcut.trim().into(),
-                            autostart,
-                            show_settings_on_startup: weak
-                                .upgrade()
-                                .is_none_or(|ui| ui.get_show_settings_on_startup()),
-                            tray_double_click_settings: weak
-                                .upgrade()
-                                .is_some_and(|ui| ui.get_tray_double_click_action() == 1),
-                        });
+                        let previous = core.config.clone();
+                        let mut result = core
+                            .apply(Config {
+                                target: target.trim().into(),
+                                listen: listen.trim().into(),
+                                shortcut: shortcut.trim().into(),
+                                autostart,
+                                show_settings_on_startup: weak
+                                    .upgrade()
+                                    .is_none_or(|ui| ui.get_show_settings_on_startup()),
+                                tray_double_click_settings: weak
+                                    .upgrade()
+                                    .is_some_and(|ui| ui.get_tray_double_click_action() == 1),
+                            })
+                            .map_err(|error| error.to_string());
                         if let Some(ui) = weak.upgrade() {
+                            if result.is_ok() {
+                                if let Err(error) =
+                                    updates_save.save_preferences(ui.get_auto_check_updates())
+                                {
+                                    result = Err(match core.apply(previous) {
+                                        Ok(()) => error,
+                                        Err(rollback) => format!(
+                                            "{error}\n設定の復旧にも失敗しました: {rollback}"
+                                        ),
+                                    });
+                                }
+                            }
                             if result.is_ok() {
                                 fill_config(&ui, &core.config);
                             }
@@ -503,6 +523,7 @@ fn run(options: Options) -> Result<(), String> {
                     return;
                 }
                 ui.invoke_cancel_capture();
+                updates.restore_editor(ui);
                 if let Some(core) = controller.borrow().as_ref() {
                     ui.set_target(core.config.target.clone().into());
                     ui.set_listen(core.config.listen.clone().into());
@@ -984,6 +1005,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
                 3 => ui.set_autostart(false),
                 4 => ui.set_tray_double_click_action(0),
                 5 => ui.set_show_settings_on_startup(true),
+                6 => ui.set_auto_check_updates(true),
                 _ => return,
             }
             ui.set_save_ok(true);
@@ -1005,8 +1027,9 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
             match result {
                 Ok(()) => {
                     fill_config(&ui, &Config::default());
-                    ui.invoke_update_preferences(true);
-                    ui.set_message("保存済み設定を削除し、自動起動を解除しました".into());
+                    if ui.invoke_update_preferences(true) {
+                        ui.set_message("保存済み設定を削除し、自動起動を解除しました".into());
+                    }
                     options.marker("reset");
                 }
                 Err(error) => ui.set_message(error.into()),
@@ -1076,6 +1099,44 @@ mod double_click_tests {
         assert!(ui.get_double_click_toggle_selected());
         assert!(!ui.get_double_click_settings_selected());
         assert!(!ui.get_dirty());
+        let directory =
+            std::env::temp_dir().join(format!("alcmute-update-editor-{}", std::process::id()));
+        let options = Options {
+            data_dir: directory.clone(),
+            benchmark: true,
+        };
+        let tray = Tray::new().unwrap();
+        let updates = updates::Updates::new(options.clone(), tray.as_weak());
+        updates.attach(&ui);
+        assert!(ui.get_auto_check_updates());
+        ui.set_auto_check_updates(false);
+        assert!(ui.get_dirty());
+        assert!(!directory.join("updates.toml").exists());
+        ui.set_auto_check_updates(true);
+        assert!(!ui.get_dirty());
+        ui.set_auto_check_updates(false);
+        updates.save_preferences(false).unwrap();
+        assert!(!ui.get_dirty());
+        assert!(
+            !alcmute_core::updater::Preferences::load(&options)
+                .unwrap()
+                .auto_check
+        );
+        ui.set_auto_check_updates(true);
+        assert!(ui.get_dirty());
+        updates.restore_editor(&ui);
+        assert!(!ui.get_auto_check_updates());
+        assert!(!ui.get_dirty());
+        assert!(ui.invoke_update_preferences(true));
+        assert!(ui.get_auto_check_updates());
+        assert!(!ui.get_dirty());
+        // A failed write must not mark the draft as saved.
+        std::fs::create_dir(directory.join("updates.pending.toml")).unwrap();
+        ui.set_auto_check_updates(false);
+        assert!(updates.save_preferences(false).is_err());
+        assert!(ui.get_saved_auto_check_updates());
+        assert!(ui.get_dirty());
+        std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
     fn pairs_clicks_without_turning_a_triple_click_into_two_actions() {

@@ -59,25 +59,38 @@ impl Updates {
             .into(),
         );
         *self.window.lock().unwrap() = Some(ui.as_weak());
+        self.restore_editor(ui);
         let service = self.clone();
         ui.on_check_updates(move || service.check());
         let service = self.clone();
         ui.on_install_update(move || service.install());
         let service = self.clone();
-        ui.on_update_preferences(move |enabled| {
-            let preferences = Preferences {
-                auto_check: enabled,
-            };
-            let result = preferences.save(&service.options);
-            let mut state = service.state.lock().unwrap();
-            match result {
-                Ok(()) => {
-                    state.preferences = preferences;
+        ui.on_update_preferences(move |enabled| match service.save_preferences(enabled) {
+            Ok(()) => {
+                if let Some(ui) = service
+                    .window
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(slint::Weak::upgrade)
+                {
+                    ui.set_auto_check_updates(enabled);
                 }
-                Err(e) => state.message = e,
+                true
             }
-            drop(state);
-            service.refresh();
+            Err(error) => {
+                if let Some(ui) = service
+                    .window
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(slint::Weak::upgrade)
+                {
+                    ui.set_save_ok(false);
+                    ui.set_message(error.into());
+                }
+                false
+            }
         });
         let service = self.clone();
         ui.on_release_page(move || {
@@ -99,12 +112,33 @@ impl Updates {
         }
         let weak = self.window.lock().unwrap();
         if let Some(ui) = weak.as_ref().and_then(slint::Weak::upgrade) {
-            ui.set_auto_check_updates(state.preferences.auto_check);
             ui.set_update_status(state.message.clone().into());
             ui.set_update_busy(state.busy);
             ui.set_update_available(state.latest.is_some());
             ui.set_update_installable(alcmute_core::windows::startup_available(&self.options));
         }
+    }
+    pub fn restore_editor(&self, ui: &Settings) {
+        let enabled = self.state.lock().unwrap().preferences.auto_check;
+        ui.set_auto_check_updates(enabled);
+        ui.set_saved_auto_check_updates(enabled);
+    }
+    pub fn save_preferences(&self, enabled: bool) -> Result<(), String> {
+        let preferences = Preferences {
+            auto_check: enabled,
+        };
+        preferences.save(&self.options)?;
+        self.state.lock().unwrap().preferences = preferences;
+        if let Some(ui) = self
+            .window
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(slint::Weak::upgrade)
+        {
+            ui.set_saved_auto_check_updates(enabled);
+        }
+        Ok(())
     }
     pub fn check(&self) {
         self.check_inner(false);
