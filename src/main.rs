@@ -218,7 +218,7 @@ slint::slint! {
                         LineEdit { text <=> root.listen; enabled: !root.capturing; }
                         Rectangle { height: 1px; background: #888; opacity: 0.25; }
                         SectionTitle { text: "管理"; }
-                        CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.update-busy && !root.capturing; toggled => {root.update-preferences(self.checked);} }
+                        CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; toggled => {root.update-preferences(self.checked);} }
                         Hint { text: "更新確認の設定はすぐに保存されます。"; }
                         Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
                         if root.update-status != "": Hint { text: root.update-status; }
