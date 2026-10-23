@@ -2,32 +2,11 @@ use crate::Result;
 use std::{cell::RefCell, str::FromStr};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HotKey {
-    Standard(global_hotkey::hotkey::HotKey),
-    Sided(Chord),
-}
+pub struct HotKey(Chord);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Chord {
     modifiers: [u8; 4],
     keys: [u64; 4],
-}
-impl HotKey {
-    pub fn id(self) -> u32 {
-        match self {
-            Self::Standard(key) => key.id(),
-            Self::Sided(c) => {
-                let mut hash = 2166136261u32;
-                for byte in c
-                    .modifiers
-                    .into_iter()
-                    .chain(c.keys.into_iter().flat_map(u64::to_le_bytes))
-                {
-                    hash = (hash ^ byte as u32).wrapping_mul(16777619);
-                }
-                hash | 0x80000000
-            }
-        }
-    }
 }
 pub fn key_name_to_vk(name: &str) -> Option<u16> {
     if name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric() {
@@ -60,8 +39,14 @@ pub fn key_name_to_vk(name: &str) -> Option<u16> {
         "Backspace" => 8,
         "Tab" => 9,
         "Enter" => 13,
+        "NumpadEnter" => 13,
+        "NumpadClear" => 12,
         "Pause" => 19,
         "CapsLock" => 20,
+        "KanaMode" => 21,
+        "Escape" => 27,
+        "Convert" => 28,
+        "NonConvert" => 29,
         "Space" => 32,
         "PageUp" => 33,
         "PageDown" => 34,
@@ -74,7 +59,9 @@ pub fn key_name_to_vk(name: &str) -> Option<u16> {
         "PrintScreen" => 44,
         "Insert" => 45,
         "Delete" => 46,
+        "Help" => 47,
         "ContextMenu" => 93,
+        "Sleep" => 95,
         "NumpadMultiply" => 106,
         "NumpadAdd" => 107,
         "NumpadComma" => 108,
@@ -83,6 +70,25 @@ pub fn key_name_to_vk(name: &str) -> Option<u16> {
         "NumpadDivide" => 111,
         "NumLock" => 144,
         "ScrollLock" => 145,
+        "NumpadEqual" => 146,
+        "BrowserBack" => 166,
+        "BrowserForward" => 167,
+        "BrowserRefresh" => 168,
+        "BrowserStop" => 169,
+        "BrowserSearch" => 170,
+        "BrowserFavorites" => 171,
+        "BrowserHome" => 172,
+        "AudioVolumeMute" => 173,
+        "AudioVolumeDown" => 174,
+        "AudioVolumeUp" => 175,
+        "MediaTrackNext" => 176,
+        "MediaTrackPrevious" => 177,
+        "MediaStop" => 178,
+        "MediaPlayPause" => 179,
+        "LaunchMail" => 180,
+        "MediaSelect" => 181,
+        "LaunchApp1" => 182,
+        "LaunchApp2" => 183,
         "Semicolon" => 186,
         "Equal" => 187,
         "Comma" => 188,
@@ -91,24 +97,39 @@ pub fn key_name_to_vk(name: &str) -> Option<u16> {
         "Slash" => 191,
         "Backquote" => 192,
         "BracketLeft" => 219,
-        "Backslash" => 220,
+        "Backslash" | "IntlYen" => 220,
         "BracketRight" => 221,
         "Quote" => 222,
-        "IntlBackslash" => 226,
+        "IntlBackslash" | "IntlRo" => 226,
+        "MediaPlay" => 250,
+        "MediaPause" => 19,
         _ => return None,
     })
 }
 impl FromStr for HotKey {
     type Err = String;
     fn from_str(text: &str) -> Result<Self> {
-        if !text
-            .split('+')
-            .any(|p| p.starts_with("Left") || p.starts_with("Right"))
-        {
-            if let Ok(key) = text.parse() {
-                return Ok(Self::Standard(key));
+        // Keep the former parser only for saved-setting spelling/alias compatibility.
+        // Registration and event delivery never use global-hotkey or RegisterHotKey.
+        let canonical = if let Ok(legacy) = text.parse::<global_hotkey::hotkey::HotKey>() {
+            use global_hotkey::hotkey::Modifiers;
+            let mut parts = Vec::new();
+            for (flag, name) in [
+                (Modifiers::CONTROL, "Ctrl"),
+                (Modifiers::ALT, "Alt"),
+                (Modifiers::SHIFT, "Shift"),
+                (Modifiers::META, "Super"),
+            ] {
+                if legacy.mods.contains(flag) {
+                    parts.push(name.to_string());
+                }
             }
-        }
+            parts.push(legacy.key.to_string());
+            parts.join("+")
+        } else {
+            text.to_string()
+        };
+        let text = canonical.as_str();
         let mut chord = Chord {
             modifiers: [0; 4],
             keys: [0; 4],
@@ -163,7 +184,7 @@ impl FromStr for HotKey {
         if chord.keys == [0; 4] && count < 2 {
             return Err("修飾キーのみの場合は2つ以上を組み合わせてください".into());
         }
-        Ok(Self::Sided(chord))
+        Ok(Self(chord))
     }
 }
 impl Chord {
@@ -194,7 +215,7 @@ impl Chord {
 // held keys and modifiers before applying the current low-level event (whose
 // asynchronous state Windows has not updated yet).
 fn reconcile_keys(down: &mut [bool], pressed: impl Fn(usize) -> bool) {
-    for (key, held) in down.iter_mut().enumerate().take(227).skip(8) {
+    for (key, held) in down.iter_mut().enumerate().skip(1) {
         if *held || matches!(key, 0x5b..=0x5c | 0xa0..=0xa5) {
             *held = pressed(key);
         }
@@ -208,7 +229,6 @@ fn rising_edge(matched: &mut bool, now: bool) -> bool {
 }
 
 pub struct GlobalHotKeyManager {
-    standard: global_hotkey::GlobalHotKeyManager,
     #[cfg(feature = "windows-integration")]
     hook: RefCell<Option<Hook>>,
 }
@@ -243,48 +263,46 @@ impl GlobalHotKeyManager {
     }
     pub fn new() -> Result<Self> {
         Ok(Self {
-            standard: global_hotkey::GlobalHotKeyManager::new().map_err(|e| e.to_string())?,
             #[cfg(feature = "windows-integration")]
             hook: RefCell::new(None),
         })
     }
     pub fn register(&self, key: HotKey) -> Result<()> {
-        match key {
-            HotKey::Standard(k) => self.standard.register(k).map_err(|e| e.to_string()),
-            HotKey::Sided(_) => {
-                #[cfg(feature = "windows-integration")]
-                {
-                    if self.hook.borrow().is_none() {
-                        *self.hook.borrow_mut() = Some(Hook::new()?);
-                    }
-                    HOOK_STATE.with(|s| s.lock().unwrap().keys.push((key, false)));
-                    Ok(())
-                }
-                #[cfg(not(feature = "windows-integration"))]
-                {
-                    Err("左右別ショートカットはSlint版で利用できます".into())
-                }
+        #[cfg(feature = "windows-integration")]
+        {
+            if self.hook.borrow().is_none() {
+                *self.hook.borrow_mut() = Some(Hook::new()?);
             }
+            HOOK_STATE.with(|s| {
+                let mut state = s.lock().unwrap();
+                if state.keys.iter().any(|(existing, _)| *existing == key) {
+                    return Err("Shortcut already registered in this manager".into());
+                }
+                state.keys.push((key, false));
+                Ok(())
+            })
+        }
+        #[cfg(not(feature = "windows-integration"))]
+        {
+            let _ = key;
+            Err("ショートカット検出にはWindows連携が必要です".into())
         }
     }
     pub fn unregister(&self, key: HotKey) -> Result<()> {
-        match key {
-            HotKey::Standard(k) => self.standard.unregister(k).map_err(|e| e.to_string()),
-            HotKey::Sided(_) => {
-                #[cfg(feature = "windows-integration")]
-                {
-                    let empty = HOOK_STATE.with(|s| {
-                        let mut s = s.lock().unwrap();
-                        s.keys.retain(|(k, _)| *k != key);
-                        s.keys.is_empty() && !s.capture
-                    });
-                    if empty {
-                        self.hook.borrow_mut().take();
-                    }
-                }
-                Ok(())
+        #[cfg(feature = "windows-integration")]
+        {
+            let empty = HOOK_STATE.with(|s| {
+                let mut state = s.lock().unwrap();
+                state.keys.retain(|(existing, _)| *existing != key);
+                state.keys.is_empty() && !state.capture
+            });
+            if empty {
+                self.hook.borrow_mut().take();
             }
         }
+        #[cfg(not(feature = "windows-integration"))]
+        let _ = key;
+        Ok(())
     }
 }
 #[cfg(feature = "windows-integration")]
@@ -324,39 +342,16 @@ pub(crate) fn take_capture_keys() -> Option<Vec<u16>> {
 }
 
 #[cfg(feature = "windows-integration")]
-pub(crate) fn foreground_key_event(name: &str, down: bool) {
-    let vk = match name {
-        "ControlLeft" => Some(0xa2),
-        "ControlRight" => Some(0xa3),
-        "AltLeft" => Some(0xa4),
-        "AltRight" => Some(0xa5),
-        "ShiftLeft" => Some(0xa0),
-        "ShiftRight" => Some(0xa1),
-        "SuperLeft" => Some(0x5b),
-        "SuperRight" => Some(0x5c),
-        "Escape" => Some(0x1b),
-        _ => key_name_to_vk(name),
-    };
-    if let Some(vk) = vk {
-        process_key_event(vk as usize, down, true);
-    }
-}
-
-#[cfg(feature = "windows-integration")]
 impl HookState {
-    fn input_event(
-        &mut self,
-        vk: usize,
-        down: bool,
-        from_settings: bool,
-        foreground_ours: bool,
-    ) -> Vec<HotKey> {
-        // One authoritative stream per foreground state prevents delayed global
-        // duplicates from replaying a whole press after winit saw its release.
-        if from_settings != foreground_ours {
-            return Vec::new();
+    fn reconcile(&mut self, pressed: impl Fn(usize) -> bool) {
+        reconcile_keys(&mut self.down, pressed);
+        let mut down = [false; 256];
+        down.copy_from_slice(&self.down);
+        for (HotKey(chord), matched) in &mut self.keys {
+            if !chord.matches(&down) {
+                *matched = false;
+            }
         }
-        self.key_event(vk, down)
     }
     fn key_event(&mut self, vk: usize, down: bool) -> Vec<HotKey> {
         if vk >= 256 {
@@ -382,9 +377,7 @@ impl HookState {
         }
         let mut fired = Vec::new();
         for (key, matched) in &mut self.keys {
-            let HotKey::Sided(chord) = key else {
-                continue;
-            };
+            let HotKey(chord) = key;
             if rising_edge(matched, chord.matches(&pressed)) && down && !repeated && !self.capture {
                 fired.push(*key);
             }
@@ -394,18 +387,18 @@ impl HookState {
 }
 
 #[cfg(feature = "windows-integration")]
-fn process_key_event(vk: usize, down: bool, from_settings: bool) {
-    let foreground_ours = crate::windows::foreground_is_ours();
+fn process_key_event(vk: usize, down: bool) {
     let fired = HOOK_STATE.with(|state| {
-        state
-            .lock()
-            .unwrap()
-            .input_event(vk, down, from_settings, foreground_ours)
+        let mut state = state.lock().unwrap();
+        state.reconcile(|key| unsafe {
+            windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(key as i32) < 0
+        });
+        state.key_event(vk, down)
     });
     for key in fired {
         if let Some(route) = crate::HOTKEY_ROUTE.get() {
             if let Some((id, sender)) = route.lock().unwrap().as_ref() {
-                if *id == key.id() {
+                if *id == key {
                     let _ = sender.send(crate::Command::Toggle);
                 }
             }
@@ -413,22 +406,6 @@ fn process_key_event(vk: usize, down: bool, from_settings: bool) {
     }
 }
 
-#[cfg(feature = "windows-integration")]
-pub(crate) fn foreground_focus_gained() {
-    HOOK_STATE.with(|storage| {
-        let mut state = storage.lock().unwrap();
-        reconcile_keys(&mut state.down, |key| unsafe {
-            windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(key as i32) < 0
-        });
-        let mut pressed = [false; 256];
-        pressed.copy_from_slice(&state.down);
-        for (key, matched) in &mut state.keys {
-            if let HotKey::Sided(chord) = key {
-                *matched = chord.matches(&pressed);
-            }
-        }
-    });
-}
 #[cfg(feature = "windows-integration")]
 impl Hook {
     fn new() -> Result<Self> {
@@ -503,6 +480,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize)
         if down || up {
             let extended = event.flags & LLKHF_EXTENDED != 0;
             let vk = match event.vkCode {
+                0x03 => 0x13, // Ctrl+Pause is reported as VK_CANCEL.
                 0x11 => {
                     if extended {
                         0xa3
@@ -526,7 +504,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize)
                 }
                 v => v,
             } as usize;
-            process_key_event(vk, down, false);
+            process_key_event(vk, down);
         }
     }
     CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
@@ -535,15 +513,82 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize)
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "windows-integration")]
+    #[test]
+    fn fresh_default_shortcut_works_on_either_side_without_foreground_input() {
+        let key: HotKey = crate::Config::default().shortcut.parse().unwrap();
+        assert_eq!(key, "control+option+m".parse().unwrap());
+        for ctrl in [0xa2, 0xa3] {
+            for alt in [0xa4, 0xa5] {
+                let mut state = HookState {
+                    keys: vec![(key, false)],
+                    down: vec![false; 256],
+                    capture: false,
+                    recorded: None,
+                };
+                assert!(state.key_event(ctrl, true).is_empty());
+                assert!(state.key_event(alt, true).is_empty());
+                assert_eq!(state.key_event(0x4d, true), vec![key]);
+                assert!(state.key_event(0x4d, true).is_empty());
+                state.key_event(0x4d, false);
+                state.capture = true;
+                assert!(state.key_event(0x4d, true).is_empty());
+                state.key_event(0x4d, false);
+                state.capture = false;
+                assert_eq!(state.key_event(0x4d, true), vec![key]);
+                state.key_event(0x4d, false);
+                state.key_event(ctrl, false);
+                assert!(state.key_event(0x4d, true).is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_spelling_and_special_keys_keep_their_meaning() {
+        for (old, canonical) in [
+            ("ctrl+alt+m", "Ctrl+Alt+KeyM"),
+            ("CONTROL+OPTION+F10", "Ctrl+Alt+F10"),
+            ("cmd+esc", "Super+Escape"),
+            ("Ctrl+VolumeUp", "Ctrl+AudioVolumeUp"),
+        ] {
+            assert_eq!(old.parse::<HotKey>().unwrap(), canonical.parse().unwrap());
+        }
+        for key in [
+            "Ctrl+Pause",
+            "Ctrl+IntlYen",
+            "Alt+NumpadEnter",
+            "MediaTrackNext",
+        ] {
+            assert!(key.parse::<HotKey>().is_ok(), "{key}");
+        }
+    }
+    #[cfg(feature = "windows-integration")]
+    #[test]
+    fn reconciliation_rearms_a_chord_after_a_lost_release() {
+        let key: HotKey = "Ctrl+Alt+KeyM".parse().unwrap();
+        let mut state = HookState {
+            keys: vec![(key, false)],
+            down: vec![false; 256],
+            capture: false,
+            recorded: None,
+        };
+        state.key_event(0xa2, true);
+        state.key_event(0xa4, true);
+        assert_eq!(state.key_event(0x4d, true), vec![key]);
+        // Windows still reports the state before the new keydown: M was released.
+        state.reconcile(|key| key == 0xa2 || key == 0xa4);
+        assert_eq!(state.key_event(0x4d, true), vec![key]);
+        // A genuine repeat while M remains held must not fire again.
+        state.reconcile(|key| key == 0xa2 || key == 0xa4 || key == 0x4d);
+        assert!(state.key_event(0x4d, true).is_empty());
+    }
     #[test]
     fn plain_key_chords_parse_in_either_order_and_require_all_keys() {
         let first: HotKey = "KeyK+KeyL".parse().unwrap();
         let second: HotKey = "L+K".parse().unwrap();
         assert_eq!(first, second);
-        assert_eq!(first.id(), second.id());
-        let HotKey::Sided(chord) = first else {
-            panic!()
-        };
+
+        let HotKey(chord) = first;
         let mut down = [false; 256];
         down[0x4b] = true;
         assert!(!chord.matches(&down));
@@ -555,7 +600,7 @@ mod tests {
     }
     #[cfg(feature = "windows-integration")]
     #[test]
-    fn plain_chords_fire_once_per_complete_press_in_both_input_routes() {
+    fn plain_chords_fire_once_per_complete_hook_press() {
         let key: HotKey = "KeyK+KeyL".parse().unwrap();
         let mut state = HookState {
             keys: vec![(key, false)],
@@ -563,57 +608,38 @@ mod tests {
             capture: false,
             recorded: None,
         };
-        for foreground in [true, false] {
-            assert!(state
-                .input_event(0x4b, true, foreground, foreground)
-                .is_empty());
-            assert_eq!(
-                state.input_event(0x4c, true, foreground, foreground),
-                vec![key]
-            );
-            assert!(state
-                .input_event(0x4c, true, foreground, foreground)
-                .is_empty());
-            state.input_event(0x4b, false, foreground, foreground);
-            assert_eq!(
-                state.input_event(0x4b, true, foreground, foreground),
-                vec![key]
-            );
-            state.input_event(0x4b, false, foreground, foreground);
-            state.input_event(0x4c, false, foreground, foreground);
+        for _ in 0..2 {
+            assert!(state.key_event(0x4b, true).is_empty());
+            assert_eq!(state.key_event(0x4c, true), vec![key]);
+            assert!(state.key_event(0x4c, true).is_empty());
+            state.key_event(0x4b, false);
+            assert_eq!(state.key_event(0x4b, true), vec![key]);
+            state.key_event(0x4b, false);
+            state.key_event(0x4c, false);
         }
     }
     #[cfg(feature = "windows-integration")]
     #[test]
-    fn window_keys_work_without_replaying_global_duplicates_or_firing_during_capture() {
+    fn sided_hook_chords_stop_during_capture_and_resume_after_cancel() {
         let key: HotKey = "RightCtrl+LeftAlt".parse().unwrap();
         let mut state = HookState {
             keys: vec![(key, false)],
             down: vec![false; 256],
-            capture: false,
+            capture: true,
             recorded: None,
         };
-        assert!(state.input_event(0xa3, true, false, true).is_empty());
-        assert!(state.input_event(0xa4, true, false, true).is_empty());
-        assert!(state.input_event(0xa3, true, true, true).is_empty());
-        assert_eq!(state.input_event(0xa4, true, true, true), vec![key]);
-        assert!(state.input_event(0xa4, true, true, true).is_empty());
-        state.input_event(0xa4, false, true, true);
-        state.input_event(0xa3, false, true, true);
-        assert!(state.input_event(0xa3, true, false, true).is_empty());
-        assert!(state.input_event(0xa4, true, false, true).is_empty());
-        state.capture = true;
-        state.input_event(0xa3, true, true, true);
-        assert!(state.input_event(0xa4, true, true, true).is_empty());
+        assert!(state.key_event(0xa3, true).is_empty());
+        assert!(state.key_event(0xa4, true).is_empty());
         assert_eq!(state.recorded, Some(vec![0xa3, 0xa4]));
-        state.input_event(0xa4, false, true, true);
-        state.input_event(0xa3, false, true, true);
+        state.key_event(0xa3, false);
+        state.key_event(0xa4, false);
         state.capture = false;
-        state.input_event(0xa3, true, false, false);
-        assert_eq!(state.input_event(0xa4, true, false, false), vec![key]);
+        assert!(state.key_event(0xa3, true).is_empty());
+        assert_eq!(state.key_event(0xa4, true), vec![key]);
+        assert!(state.key_event(0xa4, true).is_empty());
     }
     #[test]
-    fn foreground_and_global_routes_share_one_press_edge() {
+    fn a_held_chord_fires_only_on_the_press_edge() {
         let mut matched = false;
         assert!(rising_edge(&mut matched, true));
         assert!(!rising_edge(&mut matched, true));
@@ -627,17 +653,13 @@ mod tests {
         down[0xa2] = true;
         reconcile_keys(&mut down, |key| key == 0xa3);
         down[0xa5] = true;
-        let HotKey::Sided(chord) = "RightCtrl+RightAlt".parse().unwrap() else {
-            panic!()
-        };
+        let HotKey(chord) = "RightCtrl+RightAlt".parse().unwrap();
         assert!(chord.matches(&down));
         assert!(!down[0x4d] && !down[0xa2]);
     }
     #[test]
     fn side_specific_and_modifier_only_match() {
-        let HotKey::Sided(c) = "RightCtrl+RightAlt".parse().unwrap() else {
-            panic!()
-        };
+        let HotKey(c) = "RightCtrl+RightAlt".parse().unwrap();
         let mut down = [false; 256];
         down[0xa3] = true;
         down[0xa5] = true;
@@ -649,9 +671,7 @@ mod tests {
         down[0xa3] = true;
         down[0x4d] = true;
         assert!(!c.matches(&down));
-        let HotKey::Sided(c) = "RightCtrl+LeftAlt+KeyM".parse().unwrap() else {
-            panic!()
-        };
+        let HotKey(c) = "RightCtrl+LeftAlt+KeyM".parse().unwrap();
         down[0xa5] = false;
         down[0xa4] = true;
         assert!(c.matches(&down));

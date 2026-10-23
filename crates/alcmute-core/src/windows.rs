@@ -563,12 +563,6 @@ pub fn recorded_keyboard_keys() -> Option<Vec<u16>> {
     crate::shortcut::take_capture_keys()
 }
 
-pub fn foreground_key_event(name: &str, down: bool) {
-    crate::shortcut::foreground_key_event(name, down);
-}
-pub fn foreground_focus_gained() {
-    crate::shortcut::foreground_focus_gained();
-}
 pub fn foreground_is_ours() -> bool {
     unsafe {
         let window = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();

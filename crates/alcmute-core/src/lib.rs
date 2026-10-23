@@ -1,4 +1,3 @@
-use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
 pub mod appearance;
 mod apply_error;
 mod migration;
@@ -857,25 +856,14 @@ fn commit_settings_with(
     let _ = fs::remove_file(temp);
     Ok(())
 }
-// global-hotkey's handler is a OnceCell: install once, route through a mutable slot.
-type HotkeyRoute = Option<(u32, CommandSender)>;
+// The keyboard hook sends the active chord to this destination.
+type HotkeyRoute = Option<(HotKey, CommandSender)>;
 static HOTKEY_ROUTE: OnceLock<Mutex<HotkeyRoute>> = OnceLock::new();
 fn install_handler(runtime: &Runtime, hotkey: HotKey) {
-    let route = HOTKEY_ROUTE.get_or_init(|| {
-        GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
-            if event.state == HotKeyState::Pressed {
-                if let Some(route) = HOTKEY_ROUTE.get() {
-                    if let Some((id, sender)) = route.lock().unwrap().as_ref() {
-                        if *id == event.id {
-                            let _ = sender.send(Command::Toggle);
-                        }
-                    }
-                }
-            }
-        }));
-        Mutex::new(None)
-    });
-    *route.lock().unwrap() = Some((hotkey.id(), runtime.tx.clone()));
+    *HOTKEY_ROUTE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap() = Some((hotkey, runtime.tx.clone()));
 }
 impl Drop for Controller {
     fn drop(&mut self) {
@@ -979,7 +967,7 @@ mod tests {
         fs::remove_file(dir).unwrap();
     }
     #[test]
-    fn conflicting_shortcut_starts_without_registration_and_can_be_changed() {
+    fn reserved_windows_hotkey_does_not_block_hook_registration_or_capture_restore() {
         let dir = std::env::temp_dir().join(format!("alcmute-conflict-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let config = Config {
@@ -988,8 +976,8 @@ mod tests {
             shortcut: "Ctrl+Alt+Shift+F20".into(),
             ..Default::default()
         };
-        let owner = GlobalHotKeyManager::new().unwrap();
-        let key = config.shortcut.parse().unwrap();
+        let owner = global_hotkey::GlobalHotKeyManager::new().unwrap();
+        let key: global_hotkey::hotkey::HotKey = config.shortcut.parse().unwrap();
         owner.register(key).unwrap();
         fs::write(dir.join("settings.toml"), toml::to_string(&config).unwrap()).unwrap();
         let mut core = Controller::new(
@@ -1000,12 +988,12 @@ mod tests {
             Arc::new(|_| {}),
         )
         .unwrap();
-        assert!(!core.hotkey_registered);
-        assert!(core.shortcut_warning().is_some());
+        assert!(core.hotkey_registered);
+        assert!(core.shortcut_warning().is_none());
         assert!(core.can_toggle());
         core.begin_shortcut_capture().unwrap();
         core.end_shortcut_capture().unwrap();
-        assert!(!core.hotkey_registered);
+        assert!(core.hotkey_registered);
         let mut changed = config;
         changed.shortcut = "Ctrl+Alt+Shift+F19".into();
         core.apply(changed).unwrap();

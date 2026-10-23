@@ -937,29 +937,6 @@ fn restore_capture_hotkey(ui: &Settings, controller: &Rc<RefCell<Option<Controll
     }
 }
 fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, options: Options) {
-    ui.window().on_winit_window_event(|_, event| {
-        use slint::winit_030::winit::{
-            event::{ElementState, WindowEvent},
-            keyboard::PhysicalKey,
-        };
-        match event {
-            WindowEvent::KeyboardInput {
-                event,
-                is_synthetic: false,
-                ..
-            } => {
-                if let PhysicalKey::Code(code) = event.physical_key {
-                    alcmute_core::windows::foreground_key_event(
-                        &format!("{code:?}"),
-                        event.state == ElementState::Pressed,
-                    );
-                }
-            }
-            WindowEvent::Focused(true) => alcmute_core::windows::foreground_focus_gained(),
-            _ => {}
-        }
-        slint::winit_030::EventResult::Propagate
-    });
     let capture = Rc::new(RefCell::new(CaptureState::default()));
     let polling = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
