@@ -17,8 +17,8 @@ VRChatが非アクティブでも、ショートカットやWindowsの通知領�
 
 ## ダウンロードとインストール
 
-このREADMEはv0.3.0向けです。v0.3.0は公開前で、公開済みv0.2.xとは配布形式が異なります。
-公開版は[GitHub Releases](https://github.com/alcnaka/AlcMute/releases)から取得できます。
+v0.3.0からInstaller版とPortable版を配布しています。
+最新版は[GitHub Releases](https://github.com/alcnaka/AlcMute/releases/latest)から取得できます。
 
 | 形式 | ファイル名（v0.3.0） | Windowsサインイン時の自動起動 | 更新 |
 | --- | --- | --- | --- |
