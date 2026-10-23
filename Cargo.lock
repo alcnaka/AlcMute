@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "alcmute"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "alcmute-core",
  "flate2",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "alcmute-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "global-hotkey",
  "rosc",

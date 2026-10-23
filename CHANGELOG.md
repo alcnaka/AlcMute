@@ -8,6 +8,8 @@ AlcMuteの利用者に関わる主な変更を、このファイルに記録し�
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-23
+
 ### Changed（変更）
 
 - **ドキュメント**：READMEを導入と基本操作に絞り、設定・更新・トラブル対処の詳細を利用ガイドへ分離。
@@ -117,7 +119,8 @@ AlcMute（あるみゅーと / VRC Background Mute）の初回リリース。
 - 異なるDPIのモニター間でのウィンドウ移動・描画への対策。
 - Windows 10 / 11のx64向けポータブル版ZIPによる配布。
 
-[Unreleased]: https://github.com/alcnaka/AlcMute/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/alcnaka/AlcMute/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/alcnaka/AlcMute/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/alcnaka/AlcMute/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/alcnaka/AlcMute/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/alcnaka/AlcMute/compare/v0.2.1...v0.2.2
