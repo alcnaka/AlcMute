@@ -247,14 +247,18 @@ slint::slint! {
                     }
                     }
                     Rectangle {
+                        x: 0px; y: 0px;
                         width: parent.width - 16px; height: 16px;
-                        visible: scroll-frame.has-overflow && settings-scroll.content-y < -1px;
+                        opacity: scroll-frame.has-overflow && settings-scroll.content-y < -1px ? 1 : 0;
+                        animate opacity { duration: 180ms; easing: ease-in-out; }
                         background: @linear-gradient(180deg, #0006, #0000);
                     }
                     Rectangle {
+                        x: 0px;
                         y: parent.height - self.height;
                         width: parent.width - 16px; height: 16px;
-                        visible: scroll-frame.has-overflow && settings-scroll.content-height + settings-scroll.content-y > settings-scroll.visible-height + 1px;
+                        opacity: scroll-frame.has-overflow && settings-scroll.content-height + settings-scroll.content-y > settings-scroll.visible-height + 1px ? 1 : 0;
+                        animate opacity { duration: 180ms; easing: ease-in-out; }
                         background: @linear-gradient(0deg, #0006, #0000);
                     }
                 }
