@@ -18,6 +18,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Test
@@ -56,7 +58,8 @@ jobs:
           if-no-files-found: error
       - name: Build distribution packages
         shell: pwsh
-        run: ./scripts/package.ps1 -Iscc "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+        # Reuse the release build above; package.ps1 stages portable before building installer.
+        run: ./scripts/package.ps1 -TargetRoot target -Iscc "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
       - name: Verify installer preflight
         shell: pwsh
         run: ./scripts/verify-install-preflight.ps1 -Executable dist/build/installer/alcmute.exe
