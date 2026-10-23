@@ -92,6 +92,7 @@ slint::slint! {
         out property <bool> double-click-toggle-selected: toggle-choice.checked;
         out property <bool> double-click-settings-selected: settings-choice.checked;
         in-out property <bool> capturing;
+        in-out property <bool> existing-instance-notice;
         in-out property <string> capture-hint;
         in property <string> saved-target;
         in property <string> saved-listen;
@@ -240,6 +241,19 @@ slint::slint! {
                         Button { text: "保存"; enabled: root.dirty && !root.capturing; primary: root.dirty && !root.capturing; clicked => {root.save(root.target, root.listen, root.shortcut, root.autostart);} }
                         Button { text: "閉じる"; clicked => {root.cancel-capture(); root.dismiss();} }
                     }
+                }
+            }
+        }
+        if root.existing-instance-notice: Rectangle {
+            x: 16px; y: 16px; width: root.width - 32px; height: 148px;
+            background: #243b53; border-color: #76b9f0; border-width: 1px; border-radius: 8px;
+            VerticalBox {
+                padding: 12px; spacing: 8px;
+                Text { text: "AlcMuteは起動済みです"; color: white; font-size: 17px; font-weight: 700; }
+                Text { text: "既存のAlcMuteの設定画面を表示しました。"; color: white; font-size: 15px; wrap: word-wrap; }
+                HorizontalBox {
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: "OK"; clicked => {root.existing-instance-notice = false;} }
                 }
             }
         }
@@ -514,6 +528,7 @@ fn run(options: Options) -> Result<(), String> {
                         .unwrap_or("")
                         .into(),
                 );
+                ui.set_existing_instance_notice(false);
                 if let Err(error) = ui.show() {
                     report_error(&options, "設定画面を表示できません", &error.to_string());
                 } else {
@@ -526,6 +541,12 @@ fn run(options: Options) -> Result<(), String> {
     let show_events = show.clone();
     let event_handler = Rc::new(move |event: Event| match event {
         Event::Show => show_events(),
+        Event::ShowExistingInstance => {
+            show_events();
+            if let Some(ui) = settings_events.borrow().as_ref() {
+                ui.set_existing_instance_notice(true);
+            }
+        }
         Event::Hide => {
             if let Some(ui) = settings_events.borrow().as_ref() {
                 ui.invoke_cancel_capture();
@@ -655,11 +676,10 @@ fn run(options: Options) -> Result<(), String> {
         let _ = slint::invoke_from_event_loop(move || {
             HANDLER.with(|handler| {
                 if let Some(handler) = handler.borrow().as_ref() {
-                    handler(Event::Show);
+                    handler(Event::ShowExistingInstance);
                 }
             });
             reply.acknowledge();
-            alcmute_core::windows::show_existing_instance_notice();
         });
     })?;
     tray.on_settings(move || show());

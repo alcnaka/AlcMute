@@ -125,6 +125,7 @@ impl Status {
 pub enum Event {
     Status,
     Show,
+    ShowExistingInstance,
     Hide,
     Toggle,
     ExerciseSettings,
