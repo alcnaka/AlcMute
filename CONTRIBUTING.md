@@ -33,7 +33,7 @@ cargo clippy --workspace --all-targets --features installer --locked -- -D warni
 
 テストはローカルUDPとテスト専用レジストリ領域を使用し、VRChatの起動を必要としません。
 実VRChatでのOSC連携や混在DPIでの表示は、別途実機で確認してください。
-CIでも書式・Clippy（警告をエラー扱い）・通常／開発用featureのテスト・Releaseビルドを実行します。
+CIでも書式・通常／InstallerのClippy（警告をエラー扱い）・通常／dev-tools／Installerのテスト・両形式のReleaseビルドを実行します。
 
 回帰テストでは、通信を維持した設定保存、ポート競合、保存失敗、ホットキーの登録・復旧失敗、
 通信の生成・復旧失敗、キュー制限・終了、二重起動Mutex、破損設定の保護を確認します。
@@ -62,7 +62,7 @@ PoCのNWG版、計測結果、実行ログ、個人の設定ファイルは含�
 依存関係を変更した場合はPowerShell 7で`./scripts/update-license-notices.ps1`を実行し、
 `assets/dependency-licenses.txt`を更新してください。
 依存ライセンスはビルド時にzlib圧縮して埋め込みます。テストで展開後の全文一致を確認し、
-CIではMIT本文、製品アイコン、VERSIONINFO、配布種別と`--verify-licenses`の終了コードも確認します。
+CIではMIT本文、製品アイコンの各サイズと元ICOの画像データ一致、VERSIONINFO、配布種別と`--verify-licenses`の終了コードも確認します。
 
 UIは`src/`、Windows・OSC・設定処理は`crates/alcmute-core/`へ分離しています。
 設定項目の変更では、旧設定の読み込み、保存、Reset、全初期化、未保存判定を合わせて確認します。
@@ -83,7 +83,7 @@ Gitには`target/`、計測ログ、個人の`settings.toml`を含めないで�
 
 ## インストーラーと配布物
 
-Inno Setup 6.3以降（検証済み6.7.3）が必要です。公式コンパイラを導入し、ルートで実行します。
+PowerShell 7とInno Setup 6.3以降（検証済み6.7.3）が必要です。公式コンパイラを導入し、ルートで実行します。
 
 ```powershell
 ./scripts/package.ps1 -Iscc 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe'
@@ -93,6 +93,23 @@ Inno Setup 6.3以降（検証済み6.7.3）が必要です。公式コンパイ�
 `dist/SHA256SUMS.txt`を生成します。ビルドキャッシュは`-TargetRoot`で指定できます。
 同じキャッシュで両形式を順番にビルドし、検証したEXEを形式別に保存します。
 配布物に`dev-tools`は有効化しません。インストーラーのAppIdを変更しないでください。
+ソースや素材を変更した後は両形式を再生成してください。以前のZIPや展開済みEXEは自動更新されません。
+`dist/build/portable`・`dist/build/installer`は形式別ビルド、`dist/portable`はZIP作成用の一時配置です。
+利用者向けには生成済みのSetupまたはZIPを渡し、古い`target/release`や過去の展開先と混同しないでください。
+
+個別のEXEは次のコマンドで検証できます。
+
+```powershell
+./scripts/verify-artifact.ps1 -Executable dist/build/portable/alcmute.exe -Distribution portable
+./scripts/verify-artifact.ps1 -Executable dist/build/installer/alcmute.exe -Distribution installer
+./scripts/verify-install-preflight.ps1 -Executable dist/build/installer/alcmute.exe
+```
+
+事前確認スクリプトはAlcMuteを終了した状態で実行し、未起動・起動中相当のMutex・解放後を確認します。
+実アプリを起動したりRunキーを変更したりしません。
+インストーラーはファイル配置前に起動中の旧版を検出します。配置後は自動起動の移行が成功してから本体を起動します。
+`[Run]`は`ssPostInstall`より前に処理されるため、本体の先行起動を追加しないでください。
+サイレント更新後の検証・再起動は更新ヘルパーが担当します。
 
 新規インストール先はLocalAppData配下の空フォルダーに制限します。
 更新時はInnoの既存AppId・InstallDir・Uninstall登録を照合し、旧アプリを終了してから実行します。

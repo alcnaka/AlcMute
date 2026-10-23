@@ -22,7 +22,7 @@ project under CC BY-ND 4.0; their source and license links are recorded in
 `assets/img/README.md`. They are separate from AlcMute's MIT-licensed code.
 
 The application embeds the collected dependency notices and license texts in
-`assets/dependency-licenses.txt`. Open "AlcMuteについて" from the tray menu to
+`assets/dependency-licenses.txt`. Open "AlcMuteについて" from the tray menu or settings window to
 read them without external license files. Regenerate this asset with
 `scripts/update-license-notices.ps1` whenever Cargo.lock changes.
 For packages which omit license files from their crate archive, the generator
