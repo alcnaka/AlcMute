@@ -39,6 +39,24 @@ slint::slint! {
     component Hint inherits Text {
         font-size: 14px; opacity: 0.75; wrap: word-wrap; vertical-stretch: 0;
     }
+    component TextAction inherits FocusScope {
+        in property <string> text;
+        callback clicked();
+        width: label.preferred-width; height: 30px; horizontal-stretch: 0; vertical-stretch: 0;
+        focus-on-tab-navigation: root.enabled;
+        accessible-role: button; accessible-label: root.text;
+        accessible-action-default => {if root.enabled {root.clicked();}}
+        opacity: root.enabled ? 1 : 0.45;
+        key-pressed(event) => {
+            if root.enabled && (event.text == " " || event.text == Key.Return) {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+        label := Text { text: root.text; font-size: 14px; color: #65b8ff; vertical-alignment: center; }
+        Rectangle { y: parent.height - 5px; width: parent.width; height: 1px; background: #65b8ff; opacity: touch.has-hover || root.has-focus ? 1 : 0.4; }
+        touch := TouchArea { enabled: root.enabled; clicked => {root.focus(); root.clicked();} }
+    }
     component RadioChoice inherits FocusScope {
         in property <string> text;
         in property <bool> checked;
@@ -142,113 +160,127 @@ slint::slint! {
                 return reject;
             }
             VerticalBox {
-                padding: 20px; spacing: 14px;
-                Text { text: "AlcMute"; font-size: 26px; font-weight: 700; vertical-stretch: 0; }
-                Hint { text: "あるみゅーと / VRC Background Mute　" + root.app-version; }
-                HorizontalBox {
-                    Text { text: root.state; font-size: 16px; wrap: word-wrap; }
-                    Button { text: "ミュート切り替え"; enabled: root.can-toggle && !root.capturing; clicked => {root.toggle();} }
+                padding: 0px; spacing: 0px;
+                VerticalBox {
+                    padding: 24px; spacing: 12px; vertical-stretch: 0;
+                    Text { text: "AlcMute"; font-size: 26px; font-weight: 700; vertical-stretch: 0; }
+                    Hint { text: "あるみゅーと / VRC Background Mute　" + root.app-version; }
+                    HorizontalBox {
+                        Text { text: root.state; font-size: 16px; wrap: word-wrap; }
+                        Button { text: "ミュート切り替え"; enabled: root.can-toggle && !root.capturing; clicked => {root.toggle();} }
+                    }
                 }
-                Rectangle { height: 1px; background: #888; opacity: 0.25; }
                 scroll-frame := Rectangle {
                     property <bool> has-overflow: settings-scroll.content-height > settings-scroll.visible-height + 1px;
                     vertical-stretch: 1;
                     min-height: 60px;
-                    background: transparent;
+                    background: #8881;
                     Rectangle {
                         x: parent.width - self.width; width: 14px; height: parent.height;
                         border-radius: 7px; background: #8882;
                     }
                     settings-scroll := ScrollView {
-                    width: parent.width; height: parent.height;
-                    vertical-scrollbar-policy: always-on;
-                    horizontal-scrollbar-policy: always-off;
-                    VerticalBox {
-                        padding: 4px; padding-right: 22px; spacing: 12px; alignment: start;
-                        SectionTitle { text: "操作"; }
-                        HorizontalBox {
-                            FieldLabel { text: "ミュート切り替えのショートカット"; horizontal-stretch: 0; }
-                            ResetButton { setting-name: "ショートカット"; enabled: !root.capturing; clicked => {root.reset-field(2);} }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        Button {
-                            text: root.capturing ? "記録をキャンセル（Esc）" : root.shortcut-label + "　 キーを変更";
-                            clicked => {
-                                if root.capturing {root.cancel-capture();}
-                                else {root.begin-capture(); if root.capturing {key-scope.focus();}}
+                        width: parent.width; height: parent.height;
+                        vertical-scrollbar-policy: always-on;
+                        horizontal-scrollbar-policy: always-off;
+                        VerticalBox {
+                            padding: 24px; spacing: 12px; alignment: start;
+                            SectionTitle { text: "操作"; }
+                            HorizontalBox {
+                                FieldLabel { text: "ミュート切り替えのショートカット"; horizontal-stretch: 0; }
+                                ResetButton { setting-name: "ショートカット"; enabled: !root.capturing; clicked => {root.reset-field(2);} }
+                                Rectangle { horizontal-stretch: 1; }
                             }
+                            Button {
+                                text: root.capturing ? "記録をキャンセル（Esc）" : root.shortcut-label + "　 キーを変更";
+                                clicked => {
+                                    if root.capturing {root.cancel-capture();}
+                                    else {root.begin-capture(); if root.capturing {key-scope.focus();}}
+                                }
+                            }
+                            Hint { text: root.capturing ? root.capture-hint : "K＋Lなど通常キー同士も登録できます。すべてのキーを離すと確定します。"; }
+                            HorizontalBox {
+                                FieldLabel { text: "トレイアイコンのダブルクリック"; horizontal-stretch: 0; }
+                                ResetButton { setting-name: "ダブルクリック動作"; enabled: !root.capturing; clicked => {root.reset-field(4);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            toggle-choice := RadioChoice {
+                                text: "ミュート切り替え（デフォルト）";
+                                checked: root.tray-double-click-action == 0;
+                                enabled: !root.capturing;
+                                selected => {root.tray-double-click-action = 0;}
+                                navigate => {root.tray-double-click-action = 1; settings-choice.focus();}
+                            }
+                            settings-choice := RadioChoice {
+                                text: "設定ウィンドウを開く";
+                                checked: root.tray-double-click-action == 1;
+                                enabled: !root.capturing;
+                                selected => {root.tray-double-click-action = 1;}
+                                navigate => {root.tray-double-click-action = 0; toggle-choice.focus();}
+                            }
+                            Rectangle { height: 16px; }
+                            SectionTitle { text: "起動"; }
+                            HorizontalBox {
+                                FieldLabel { text: "Windowsサインイン時"; horizontal-stretch: 0; }
+                                ResetButton { setting-name: "自動起動"; enabled: !root.capturing && root.autostart-available; clicked => {root.reset-field(3);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            CheckBox { text: "Windowsサインイン時に起動"; checked <=> root.autostart; enabled: !root.capturing && root.autostart-available; }
+                            if !root.autostart-available: Hint { text: "インストーラー版でのみ利用できます。"; }
+                            HorizontalBox {
+                                FieldLabel { text: "起動時の画面"; horizontal-stretch: 0; }
+                                ResetButton { setting-name: "起動時の表示"; enabled: !root.capturing; clicked => {root.reset-field(5);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            CheckBox { text: "手動起動時に設定ウィンドウを表示する"; checked <=> root.show-settings-on-startup; enabled: !root.capturing; }
+                            Hint { text: "Windowsサインイン時と更新後は画面を表示せず常駐します。"; }
+                            Rectangle { height: 16px; }
+                            SectionTitle { text: "OSC接続"; }
+                            Hint { text: "VRChatと通信するアドレスです。通常は初期値のままで使用できます。"; }
+                            HorizontalBox {
+                                FieldLabel { text: "送信先（IPアドレス：ポート）"; horizontal-stretch: 0; }
+                                ResetButton { setting-name: "OSC送信先"; enabled: !root.capturing; clicked => {root.reset-field(0);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            LineEdit { text <=> root.target; enabled: !root.capturing; }
+                            HorizontalBox {
+                                FieldLabel { text: "受信先（IPアドレス：ポート）"; horizontal-stretch: 0; }
+                                ResetButton { setting-name: "OSC受信先"; enabled: !root.capturing; clicked => {root.reset-field(1);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            LineEdit { text <=> root.listen; enabled: !root.capturing; }
+                            Rectangle { height: 16px; }
+                            SectionTitle { text: "アップデート"; }
+                            HorizontalBox {
+                                CheckBox { horizontal-stretch: 0; text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; }
+                                ResetButton { setting-name: "更新確認"; enabled: !root.capturing; clicked => {root.reset-field(6);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
+                            if root.update-status != "": Hint { text: root.update-status; }
+                            if root.update-available && root.update-installable: Button { text: "ダウンロードして更新"; enabled: !root.update-busy && !root.capturing; clicked => {root.install-update();} }
+                            Rectangle { height: 16px; }
+                            SectionTitle { text: "アプリ情報"; }
+                            HorizontalBox {
+                                Button { text: "AlcMuteについて"; enabled: !root.capturing; clicked => {root.about();} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            TextAction { text: "GitHub Releasesを開く"; enabled: !root.capturing; clicked => {root.release-page();} }
+                            Rectangle { height: 16px; }
+                            SectionTitle { text: "設定データ"; }
+                            FieldLabel { text: "設定ファイルの保存先"; }
+                            Hint { text: root.config-path; }
+                            Rectangle { height: 8px; }
+                            HorizontalBox {
+                                Button { text: "すべての設定を初期化"; enabled: !root.capturing; clicked => {root.reset-all();} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Hint { text: "確認後に保存済み設定を削除し、自動起動も無効にします。"; }
                         }
-                        Hint { text: root.capturing ? root.capture-hint : "K＋Lなど通常キー同士も登録できます。すべてのキーを離すと確定します。"; }
-                        HorizontalBox {
-                            FieldLabel { text: "トレイアイコンのダブルクリック"; horizontal-stretch: 0; }
-                            ResetButton { setting-name: "ダブルクリック動作"; enabled: !root.capturing; clicked => {root.reset-field(4);} }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        toggle-choice := RadioChoice {
-                            text: "ミュート切り替え（デフォルト）";
-                            checked: root.tray-double-click-action == 0;
-                            enabled: !root.capturing;
-                            selected => {root.tray-double-click-action = 0;}
-                            navigate => {root.tray-double-click-action = 1; settings-choice.focus();}
-                        }
-                        settings-choice := RadioChoice {
-                            text: "設定ウィンドウを開く";
-                            checked: root.tray-double-click-action == 1;
-                            enabled: !root.capturing;
-                            selected => {root.tray-double-click-action = 1;}
-                            navigate => {root.tray-double-click-action = 0; toggle-choice.focus();}
-                        }
-                        Rectangle { height: 1px; background: #888; opacity: 0.25; }
-                        SectionTitle { text: "起動"; }
-                        HorizontalBox {
-                            FieldLabel { text: "Windowsサインイン時"; horizontal-stretch: 0; }
-                            ResetButton { setting-name: "自動起動"; enabled: !root.capturing && root.autostart-available; clicked => {root.reset-field(3);} }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        CheckBox { text: "Windowsサインイン時に起動"; checked <=> root.autostart; enabled: !root.capturing && root.autostart-available; }
-                        if !root.autostart-available: Hint { text: "インストーラー版でのみ利用できます。"; }
-                        HorizontalBox {
-                            FieldLabel { text: "起動時の画面"; horizontal-stretch: 0; }
-                            ResetButton { setting-name: "起動時の表示"; enabled: !root.capturing; clicked => {root.reset-field(5);} }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        CheckBox { text: "手動起動時に設定ウィンドウを表示する"; checked <=> root.show-settings-on-startup; enabled: !root.capturing; }
-                        Hint { text: "Windowsサインイン時と更新後は画面を表示せず常駐します。"; }
-                        Rectangle { height: 1px; background: #888; opacity: 0.25; }
-                        SectionTitle { text: "OSC接続"; }
-                        Hint { text: "VRChatと通信するアドレスです。通常は初期値のままで使用できます。"; }
-                        HorizontalBox {
-                            FieldLabel { text: "送信先（IPアドレス：ポート）"; horizontal-stretch: 0; }
-                            ResetButton { setting-name: "OSC送信先"; enabled: !root.capturing; clicked => {root.reset-field(0);} }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        LineEdit { text <=> root.target; enabled: !root.capturing; }
-                        HorizontalBox {
-                            FieldLabel { text: "受信先（IPアドレス：ポート）"; horizontal-stretch: 0; }
-                            ResetButton { setting-name: "OSC受信先"; enabled: !root.capturing; clicked => {root.reset-field(1);} }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        LineEdit { text <=> root.listen; enabled: !root.capturing; }
-                        Rectangle { height: 1px; background: #888; opacity: 0.25; }
-                        SectionTitle { text: "管理"; }
-                        HorizontalBox {
-                            CheckBox { text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; }
-                            ResetButton { setting-name: "更新確認"; enabled: !root.capturing; clicked => {root.reset-field(6);} }
-                        }
-                        Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
-                        if root.update-status != "": Hint { text: root.update-status; }
-                        if root.update-available && root.update-installable: Button { text: "ダウンロードして更新"; enabled: !root.update-busy && !root.capturing; clicked => {root.install-update();} }
-                        Button { text: "GitHub Releasesを開く"; clicked => {root.release-page();} }
-                        Button { text: "AlcMuteについて"; enabled: !root.capturing; clicked => {root.about();} }
-                        Hint { text: "設定ファイル：\n" + root.config-path; }
-                        Button { text: "すべての設定を初期化"; enabled: !root.capturing; clicked => {root.reset-all();} }
-                        Hint { text: "確認後に保存済み設定を削除し、自動起動も無効にします。"; }
-                        Button { text: "ツールを終了"; clicked => {root.cancel-capture(); root.quit-confirmed();} }
-                    }
                     }
                     Rectangle {
                         x: 0px; y: 0px;
-                        width: parent.width - 16px; height: 16px;
+                        width: parent.width; height: 16px;
                         opacity: scroll-frame.has-overflow && settings-scroll.content-y < -1px ? 1 : 0;
                         animate opacity { duration: 180ms; easing: ease-in-out; }
                         background: @linear-gradient(180deg, #0006, #0000);
@@ -256,21 +288,21 @@ slint::slint! {
                     Rectangle {
                         x: 0px;
                         y: parent.height - self.height;
-                        width: parent.width - 16px; height: 16px;
+                        width: parent.width; height: 16px;
                         opacity: scroll-frame.has-overflow && settings-scroll.content-height + settings-scroll.content-y > settings-scroll.visible-height + 1px ? 1 : 0;
                         animate opacity { duration: 180ms; easing: ease-in-out; }
                         background: @linear-gradient(0deg, #0006, #0000);
                     }
                 }
-                Rectangle { height: 1px; background: #888; opacity: 0.25; }
                 VerticalBox {
-                    padding: 0px; spacing: 8px; vertical-stretch: 0;
+                    padding: 24px; padding-top: 16px; spacing: 8px; vertical-stretch: 0;
                     if root.dirty: Text { text: "保存されていない設定があります"; color: #d58b28; font-size: 15px; wrap: word-wrap; }
                     if root.message != "": Text { text: root.message; wrap: word-wrap; color: root.save-ok ? #16814b : #b04030; font-size: 14px; }
                     HorizontalBox {
-                        Hint { text: "変更は「保存」で反映されます。"; }
-                        Button { text: "保存"; enabled: root.dirty && !root.capturing; primary: root.dirty && !root.capturing; clicked => {root.save(root.target, root.listen, root.shortcut, root.autostart);} }
-                        Button { text: "閉じる"; clicked => {root.cancel-capture(); root.dismiss();} }
+                        TextAction { text: "終了…"; clicked => {root.cancel-capture(); root.quit-confirmed();} }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button { text: "保存"; min-width: 100px; enabled: root.dirty && !root.capturing; primary: root.dirty && !root.capturing; clicked => {root.save(root.target, root.listen, root.shortcut, root.autostart);} }
+                        Button { text: "閉じる"; min-width: 100px; clicked => {root.cancel-capture(); root.dismiss();} }
                     }
                 }
             }
