@@ -73,7 +73,6 @@ impl Updates {
             match result {
                 Ok(()) => {
                     state.preferences = preferences;
-                    state.message = "更新確認の設定を保存しました".into();
                 }
                 Err(e) => state.message = e,
             }

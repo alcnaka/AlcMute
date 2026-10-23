@@ -245,10 +245,14 @@ slint::slint! {
             }
         }
         if root.existing-instance-notice: Rectangle {
-            x: 16px; y: 16px; width: root.width - 32px; height: 148px;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            width: min(420px, root.width - 64px); height: 172px;
+            drop-shadow-color: #0009; drop-shadow-blur: 24px; drop-shadow-offset-y: 8px;
             background: #243b53; border-color: #76b9f0; border-width: 1px; border-radius: 8px;
+            TouchArea { }
             VerticalBox {
-                padding: 12px; spacing: 8px;
+                padding: 20px; spacing: 12px;
                 Text { text: "AlcMuteは起動済みです"; color: white; font-size: 17px; font-weight: 700; }
                 Text { text: "既存のAlcMuteの設定画面を表示しました。"; color: white; font-size: 15px; wrap: word-wrap; }
                 HorizontalBox {
