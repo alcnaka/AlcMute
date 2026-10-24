@@ -187,6 +187,14 @@ slint::slint! {
         callback begin-capture();
         callback capture-key();
         callback cancel-capture();
+        public function scroll-to-updates() {
+            // Layout coordinates are logical lengths, including at mixed DPI.
+            // Leave room for the edge shadow and clamp to the scrollable range.
+            settings-scroll.content-y = -min(
+                max(0px, update-heading.y - 24px),
+                max(0px, settings-scroll.content-height - settings-scroll.visible-height)
+            );
+        }
         key-scope := FocusScope {
             key-pressed(event) => {
                 if root.capturing {
@@ -307,7 +315,7 @@ slint::slint! {
                             }
                             Hint { text: "選択するとプレビューします。「保存」で確定します。"; }
                             Rectangle { height: 16px; }
-                            SectionTitle { text: "アップデート"; }
+                            update-heading := SectionTitle { text: "アップデート"; }
                             HorizontalBox {
                                 CheckBox { horizontal-stretch: 0; text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; }
                                 ResetButton { setting-name: "更新確認"; enabled: !root.capturing; clicked => {root.reset-field(6);} }
@@ -810,10 +818,22 @@ fn run(options: Options) -> Result<(), String> {
     });
     let startup_show = show.clone();
     let update_show = show.clone();
+    let update_settings = settings.clone();
     let update_check = updates.clone();
     tray.on_updates(move || {
         update_show();
         update_check.check();
+        if let Some(ui) = update_settings.borrow().as_ref() {
+            let weak = ui.as_weak();
+            // Run after showing/restoring the window so its layout is current.
+            slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+                if let Some(ui) = weak.upgrade() {
+                    if ui.window().is_visible() {
+                        ui.invoke_scroll_to_updates();
+                    }
+                }
+            });
+        }
     });
     let _activation = alcmute_core::windows::ipc::ActivationServer::start(move |reply| {
         let _ = slint::invoke_from_event_loop(move || {
