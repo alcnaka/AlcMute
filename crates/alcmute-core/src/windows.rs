@@ -28,6 +28,15 @@ use windows_sys::Win32::{
 };
 
 struct Handle(HANDLE);
+/// Completion timestamp in the user's Windows local time.
+pub fn local_timestamp() -> String {
+    let mut time = unsafe { std::mem::zeroed() };
+    unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut time) };
+    format!(
+        "{:04}/{:02}/{:02} {:02}:{:02}:{:02}",
+        time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
+    )
+}
 #[path = "ipc.rs"]
 pub mod ipc;
 impl Drop for Handle {

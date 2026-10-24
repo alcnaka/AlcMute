@@ -13,6 +13,7 @@ struct State {
     latest: Option<Release>,
     busy: bool,
     last: Option<Instant>,
+    last_checked: String,
 }
 #[derive(Clone)]
 pub struct Updates {
@@ -34,6 +35,7 @@ impl Updates {
                 latest: None,
                 busy: false,
                 last: None,
+                last_checked: String::new(),
             })),
             window: Arc::new(Mutex::new(None)),
             tray,
@@ -99,6 +101,7 @@ impl Updates {
         let weak = self.window.lock().unwrap();
         if let Some(ui) = weak.as_ref().and_then(slint::Weak::upgrade) {
             ui.set_update_status(state.message.clone().into());
+            ui.set_update_last_checked(state.last_checked.clone().into());
             ui.set_update_busy(state.busy);
             ui.set_update_available(state.latest.is_some());
             ui.set_update_installable(alcmute_core::windows::startup_available(&self.options));
@@ -146,7 +149,7 @@ impl Updates {
             let result = updater::fetch_latest();
             let mut state = service.state.lock().unwrap();
             state.busy = false;
-            match result.and_then(|release| {
+            let result = result.and_then(|release| {
                 release
                     .map(|release| {
                         release
@@ -154,7 +157,11 @@ impl Updates {
                             .map(|newer| (release, newer))
                     })
                     .transpose()
-            }) {
+            });
+            if result.is_ok() {
+                state.last_checked = alcmute_core::windows::local_timestamp();
+            }
+            match result {
                 Ok(Some((release, true))) => {
                     state.message = format!("新しいバージョン {} があります。", release.tag_name);
                     state.latest = Some(release);

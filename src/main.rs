@@ -170,6 +170,7 @@ slint::slint! {
         in property <bool> update-busy;
         in property <bool> update-available;
         in property <bool> update-installable;
+        in property <string> update-last-checked;
         in property <string> app-version;
         callback check-updates();
         callback install-update();
@@ -323,6 +324,7 @@ slint::slint! {
                             }
                             Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
                             if root.update-status != "": Hint { text: root.update-status; }
+                            Hint { text: root.update-last-checked == "" ? "最終確認：未確認" : "最終確認：" + root.update-last-checked; }
                             if root.update-available && root.update-installable: Button { text: "ダウンロードして更新"; enabled: !root.update-busy && !root.capturing; clicked => {root.install-update();} }
                             Rectangle { height: 16px; }
                             SectionTitle { text: "アプリ情報"; }
