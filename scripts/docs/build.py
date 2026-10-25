@@ -79,17 +79,20 @@ def inline(children):
     return "".join(result)
 
 
-def build_pdf(tokens, headings, output, version, font_path):
+def build_pdf(tokens, headings, output, version, font_path, bold_path):
     # Embed a local TrueType Japanese font; no PDF reader/system-font dependency.
     pdfmetrics.registerFont(TTFont("Guide", str(font_path), subfontIndex=0))
-    pdfmetrics.registerFontFamily("Guide", normal="Guide", bold="Guide", italic="Guide", boldItalic="Guide")
-    body = ParagraphStyle("body", fontName="Guide", fontSize=10, leading=17,
-                          wordWrap="CJK", textColor=colors.HexColor("#243747"), spaceAfter=9)
-    styles = {1: ParagraphStyle("title", parent=body, fontSize=27, leading=38, spaceAfter=24),
-              2: ParagraphStyle("section", parent=body, fontSize=18, leading=27, textColor=colors.HexColor("#126b85"), spaceBefore=18, spaceAfter=13, keepWithNext=True),
-              3: ParagraphStyle("subsection", parent=body, fontSize=12, leading=20, spaceBefore=12, spaceAfter=8, keepWithNext=True)}
-    cell = ParagraphStyle("cell", parent=body, fontSize=9, leading=14, spaceAfter=0)
-    story = [Image(str(ROOT / "assets/app.png"), 65, 65), Spacer(1, 22),
+    pdfmetrics.registerFont(TTFont("GuideBold", str(bold_path), subfontIndex=0))
+    pdfmetrics.registerFontFamily("Guide", normal="Guide", bold="GuideBold", italic="Guide", boldItalic="GuideBold")
+    body = ParagraphStyle("body", fontName="Guide", fontSize=10.5, leading=17,
+                          wordWrap="CJK", textColor=colors.HexColor("#243747"), spaceAfter=6)
+    styles = {1: ParagraphStyle("title", parent=body, fontName="GuideBold", fontSize=27, leading=38, spaceAfter=24),
+              2: ParagraphStyle("section", parent=body, fontName="GuideBold", fontSize=18, leading=27, textColor=colors.HexColor("#126b85"), spaceBefore=18, spaceAfter=13, keepWithNext=True),
+              3: ParagraphStyle("subsection", parent=body, fontName="GuideBold", fontSize=12, leading=20, spaceBefore=12, spaceAfter=8, keepWithNext=True)}
+    cell = ParagraphStyle("cell", parent=body, fontSize=9.5, leading=15, spaceAfter=0)
+    logo = Image(str(ROOT / "assets/app.png"), 90, 90)
+    logo.hAlign = "LEFT"
+    story = [logo, Spacer(1, 22),
              Paragraph("AlcMute", styles[1]), Paragraph("あるみゅーと / VRC Background Mute", body),
              Paragraph("ご利用マニュアル", styles[2]),
              Paragraph(f"ソースバージョン {version} / Windows 10・11", body),
@@ -144,7 +147,7 @@ def build_pdf(tokens, headings, output, version, font_path):
                     if value is not None:
                         list_stack[-1] += 1
                 style = body if not bullet else ParagraphStyle("item", parent=body, leftIndent=18, firstLineIndent=0, bulletIndent=0)
-                story.append(Paragraph(inline(content.children), style, bulletText=bullet))
+                story.append(KeepTogether([Paragraph(inline(content.children), style, bulletText=bullet)]))
             i += 3
             continue
         elif t.type == "fence":
@@ -192,16 +195,18 @@ def build_pdf(tokens, headings, output, version, font_path):
         canvas.line(60, 45, A4[0] - 60, 45)
 
     SimpleDocTemplate(str(output), pagesize=A4, leftMargin=60, rightMargin=60,
-                      topMargin=46, bottomMargin=65).build(story, onFirstPage=decorate, onLaterPages=decorate)
+                      topMargin=42, bottomMargin=58).build(story, onFirstPage=decorate, onLaterPages=decorate)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "output")
-    parser.add_argument("--font", type=Path, default=Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts/msgothic.ttc")
+    fonts = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
+    parser.add_argument("--font", type=Path, default=fonts / "YuGothM.ttc")
+    parser.add_argument("--bold-font", type=Path, default=fonts / "YuGothB.ttc")
     args = parser.parse_args()
-    if not args.font.is_file():
-        parser.error("Japanese TrueType font required; pass --font <path to TTF/TTC>")
+    if not args.font.is_file() or not args.bold_font.is_file():
+        parser.error("Japanese TrueType fonts required; pass --font and --bold-font <path to TTF/TTC>")
     version = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
     markdown = MarkdownIt("commonmark", {"html": False}).enable("table")
     tokens, headings = prepare_tokens(markdown, SOURCE.read_text(encoding="utf-8"))
@@ -210,7 +215,7 @@ def main():
     for folder in [site / "assets", pdf_dir]:
         folder.mkdir(parents=True, exist_ok=True)
     # PDF sees repository-relative image paths; HTML gets copies alongside it.
-    build_pdf(tokens, headings, pdf_dir / "AlcMute-Manual.pdf", version, args.font)
+    build_pdf(tokens, headings, pdf_dir / "AlcMute-Manual.pdf", version, args.font, args.bold_font)
     for token in tokens:
         for child in token.children or []:
             if child.type == "image":

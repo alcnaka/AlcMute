@@ -4,3 +4,7 @@
 @media(max-width:800px){header{padding:12px 20px;height:80px}.brand{font-size:20px}.brand small{font-size:10px}.pdf{padding:7px 10px;font-size:12px}.layout{display:block;padding:24px 20px}aside{position:static;border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:26px}nav{display:flex;flex-wrap:wrap;gap:3px}nav a{padding:6px 10px;font-size:12px}.sidebar-footer{display:none}h1{font-size:26px}h2{font-size:22px}table{font-size:12px}th,td{padding:9px 7px}}
 @media(prefers-reduced-motion:reduce){:root{scroll-behavior:auto}}
 @media print{header,aside,.intro,footer{display:none}.layout{display:block;padding:0}body{background:white;color:black}h2{break-before:page}img,table{break-inside:avoid}}
+
+/* The navy brand mark needs a light backing in both color schemes. */
+.brand img{width:50px;height:50px;flex:none;object-fit:contain;padding:6px;background:#fff;border:1px solid #dce5ec;border-radius:10px}
+@media(max-width:800px){.brand img{width:44px;height:44px;padding:5px}}
