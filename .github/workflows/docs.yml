@@ -1,0 +1,27 @@
+name: Documentation
+on:
+  workflow_dispatch:
+  push:
+    paths: ['docs/user-guide.md', 'docs/screenshots/**', 'scripts/docs/**', 'assets/app.png', 'Cargo.toml', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['docs/user-guide.md', 'docs/screenshots/**', 'scripts/docs/**', 'assets/app.png', 'Cargo.toml', '.github/workflows/docs.yml']
+permissions:
+  contents: read
+jobs:
+  documentation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/docs/requirements.txt
+      - run: python -m pip install -r scripts/docs/requirements.txt
+      - run: python scripts/docs/build.py
+      - run: python scripts/docs/verify.py
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: alcmute-documentation
+          path: output/
+          if-no-files-found: error

@@ -1,5 +1,7 @@
 # 開発
 
+WebドキュメントとPDFの生成手順は[ドキュメントの生成](scripts/docs/README.md)を参照してください。
+
 ## ビルド
 
 Rust 1.92以上のMSVCツールチェーンと、Visual Studio Build Toolsの

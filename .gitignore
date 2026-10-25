@@ -2,6 +2,9 @@
 **/target/
 /dist/
 /results/
+/output/
+/.venv-docs/
+scripts/docs/__pycache__/
 /.idea/
 /.vscode/
 *.pdb
