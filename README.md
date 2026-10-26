@@ -25,20 +25,17 @@ Windows 10 / 11向けの常駐アプリです。VRChat公式OSCを使い、通�
 
 設定画面の「閉じる」や×を押しても、アプリはトレイに常駐します。終了するにはトレイメニューの「終了」を選びます。
 
-ショートカットは左右の修飾キーの指定や、`K + L`などの同時押しにも対応しています。設定画面ではトレイのダブルクリック動作や、ライト／ダークテーマも変更できます。
-
 ## 詳しい使い方
 
 - [インストール・更新](docs/user-guide.md#インストールと更新)
 - [ショートカット・設定・トレイ操作](docs/user-guide.md#基本操作)
-- [設定ファイルの場所・バックアップ](docs/user-guide.md#設定ファイル)
+- [設定の変更](docs/user-guide.md#設定を変更する)
 - [困ったとき](docs/user-guide.md#困ったとき)
 - [変更履歴](CHANGELOG.md)
 
 ## ライセンス
 
-制作：**Alcnaka**。AlcMuteの独自コードは[MIT License](LICENSE)です。
-依存ライブラリのライセンスは[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)と、アプリの「AlcMuteについて」から確認できます。
+制作：**Alcnaka** / [MIT License](LICENSE)。ライセンス情報はアプリの「AlcMuteについて」でも確認できます。
 
 <a href="https://slint.dev/">
   <picture>

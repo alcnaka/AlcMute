@@ -2,8 +2,9 @@
 from html.parser import HTMLParser
 from pathlib import Path
 import re
+import os
 import unicodedata
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
 from pypdf import PdfReader
@@ -32,16 +33,31 @@ def normalized(text):
 
 
 def main():
-    page = Page()
-    page.feed((SITE / "index.html").read_text(encoding="utf-8"))
-    assert len(page.ids) == len(set(page.ids)), "Duplicate HTML anchors"
-    for link in page.links:
-        if link == "#" or link.startswith(("https://", "http://")):
-            continue
-        if link.startswith("#"):
-            assert unquote(link[1:]) in page.ids, f"Missing anchor: {link}"
-        else:
-            assert (SITE / link).is_file(), f"Missing local asset: {link}"
+    pages = list(SITE.rglob("*.html"))
+    assert len(pages) >= 6, "Astro pages have not been built"
+    parsed = {}
+    for path in pages:
+        page = Page()
+        page.feed(path.read_text(encoding="utf-8"))
+        assert len(page.ids) == len(set(page.ids)), f"Duplicate anchors: {path}"
+        parsed[path.resolve()] = page
+    base = os.environ.get("DOCS_BASE_PATH", "/").rstrip("/")
+    for path, page in parsed.items():
+        for link in page.links:
+            url = urlsplit(link)
+            if url.scheme or url.netloc or link == "#":
+                continue
+            target_path = unquote(url.path)
+            if target_path.startswith("/"):
+                assert not base or target_path == base or target_path.startswith(base + '/'), f"Outside base: {link}"
+                target = SITE / target_path[len(base):].lstrip("/")
+            else:
+                target = path.parent / target_path if target_path else path
+            if target.is_dir():
+                target /= 'index.html'
+            assert target.is_file(), f"Missing local target: {path} -> {link}"
+            if url.fragment and target.suffix == '.html':
+                assert unquote(url.fragment) in parsed[target.resolve()].ids, f"Missing anchor: {link}"
     pdf = ROOT / "output/pdf/AlcMute-Manual.pdf"
     assert pdf.read_bytes() == (SITE / pdf.name).read_bytes(), "Web PDF differs"
     reader = PdfReader(pdf)

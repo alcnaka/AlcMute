@@ -5,6 +5,11 @@
 /output/
 /.venv-docs/
 scripts/docs/__pycache__/
+/website/node_modules/
+/website/.astro/
+/website/src/content/docs/
+/website/src/assets/
+/website/public/
 /.idea/
 /.vscode/
 *.pdb
