@@ -1,6 +1,6 @@
 # Web・PDFの生成（開発者向け）
 
-共通原稿は`docs/user-guide.md`です。ユーザー向けの操作説明だけを置き、内部仕様・検証記録は`docs/developer-documentation-notes.md`などへ分離します。WebとPDFを別々に編集しません。
+各言語の共通原稿は`docs/user-guide.md`と`docs/user-guide.en.md`です。ユーザー向けの操作説明だけを置き、内部仕様・検証記録は`docs/developer-documentation-notes.md`などへ分離します。WebとPDFを別々に編集しません。
 
 ## 必要な環境
 
@@ -39,7 +39,9 @@ pnpm --dir website preview
 
 表示されたlocalhostのURLを開きます。Astro版の検索やページ移動を確認する際は、HTMLファイルを直接開かずHTTPで配信してください。開発サーバーは`pnpm --dir website dev`です。原稿を編集したら先にPythonの生成コマンドを再実行します。
 
-Starlight標準の複数ページ、Pagefind検索、目次、ページ送り、モバイルメニュー、ライト／ダーク／自動を利用します。本文は日本語です。
+Starlight標準の複数ページ、Pagefind検索、目次、ページ送り、モバイルメニュー、ライト／ダーク／自動を利用します。日本語原稿は`docs/user-guide.md`、英語原稿は`docs/user-guide.en.md`です。Web版は日本語をルート、英語を`/en/`に生成し、言語メニューから切り替えます。
+
+PDFは`AlcMute-Manual.pdf`（日本語）と`AlcMute-Manual-en.pdf`（英語）を生成します。各言語の「はじめに」にのみ、その言語のPDFダウンロードリンクを置き、サイドバーには追加しません。日本語の画面画像を英語原稿で使う場合は、その旨をキャプションに記載します。
 
 ## GitHub Pagesなどのサブパス
 

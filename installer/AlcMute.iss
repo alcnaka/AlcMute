@@ -35,13 +35,36 @@ CloseApplicationsFilter=alcmute.exe
 WizardStyle=modern
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+[CustomMessages]
+japanese.DesktopShortcut=デスクトップにショートカットを作成する
+english.DesktopShortcut=Create a desktop shortcut
+japanese.UserDirectory=管理者権限なしで更新するため、ユーザーのLocalAppData配下を選択してください。
+english.UserDirectory=Choose a folder under your LocalAppData so updates do not require administrator privileges.
+japanese.SeparateSettings=設定保存フォルダーとプログラムのインストール先は別にしてください。
+english.SeparateSettings=Choose an installation folder separate from the settings folder.
+japanese.EmptyDirectory=既存のPortable版や他のファイルを上書きしないよう、空の専用フォルダーを選択してください。
+english.EmptyDirectory=Choose an empty folder to avoid overwriting a Portable edition or other files.
+japanese.CheckFailed=AlcMuteの起動状態を確認できませんでした。セットアップを再実行してください。
+english.CheckFailed=Cannot check whether AlcMute is running. Run Setup again.
+japanese.CloseRunning=AlcMuteが起動中です。旧Portable版を含むAlcMuteをトレイメニューから終了して、再試行してください。
+english.CloseRunning=AlcMute is running. Exit all copies, including older Portable editions, from the tray menu and try again.
+japanese.CheckRetry=AlcMuteの起動状態を確認できませんでした。ほかのAlcMuteを終了して再試行してください。
+english.CheckRetry=Cannot check whether AlcMute is running. Exit other copies and try again.
+japanese.MigrationFailed=自動起動の移行に失敗しました。既存の登録を確認し、AlcMuteのログを参照してください。
+english.MigrationFailed=Startup migration failed. Check the existing startup entries and the AlcMute log.
+japanese.LaunchFailed=インストールは完了しましたが、AlcMuteを起動できませんでした。スタートメニューから起動してください。
+english.LaunchFailed=Installation finished, but AlcMute could not start. Open it from the Start menu.
+japanese.CleanupFailed=自動起動を解除できませんでした。AlcMuteを終了して再試行してください。
+english.CleanupFailed=Cannot remove the startup entry. Exit AlcMute and try again.
 [Tasks]
-Name: "desktopicon"; Description: "デスクトップにショートカットを作成する"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:DesktopShortcut}"; Flags: unchecked
 [Files]
 Source: "{#BuildDir}\alcmute.exe"; DestName: "alcmute-preflight.exe"; Flags: dontcopy noencryption
 Source: "{#BuildDir}\alcmute.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\app.ico"; DestDir: "{app}"; DestName: "alcmute-logo.ico"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\README.en.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{group}\AlcMute"; Filename: "{app}\alcmute.exe"; WorkingDir: "{app}"; IconFilename: "{app}\alcmute-logo.ico"; IconIndex: 0
@@ -88,22 +111,22 @@ begin
   SettingsDir := AddBackslash(ExpandConstant('{localappdata}\Alcnaka\AlcMute'));
   if Pos(Lowercase(AddBackslash(ExpandConstant('{localappdata}'))),
     Lowercase(Path)) <> 1 then
-    Result := '管理者権限なしで更新するため、ユーザーのLocalAppData配下を選択してください。';
+    Result := CustomMessage('UserDirectory');
   if Pos(Lowercase(SettingsDir), Lowercase(Path)) = 1 then
-    Result := '設定保存フォルダーとプログラムのインストール先は別にしてください。';
+    Result := CustomMessage('SeparateSettings');
   Managed := RegQueryStringValue(HKCU, 'Software\Alcnaka\AlcMute', 'InstallDir', RegisteredDir);
   Managed := Managed and (CompareText(AddBackslash(RegisteredDir), Path) = 0);
   if (not Managed) and DirectoryHasEntries(Path) then
-    Result := '既存のPortable版や他のファイルを上書きしないよう、空の専用フォルダーを選択してください。';
+    Result := CustomMessage('EmptyDirectory');
   if Result <> '' then Exit;
   { Use the same per-user mutex as older Portable versions, before copying files. }
   ExtractTemporaryFile('alcmute-preflight.exe');
   if not Exec(ExpandConstant('{tmp}\alcmute-preflight.exe'), '--check-install-ready', '', SW_HIDE, ewWaitUntilTerminated, Code) then
-    Result := 'AlcMuteの起動状態を確認できませんでした。セットアップを再実行してください。'
+    Result := CustomMessage('CheckFailed')
   else if Code = 2 then
-    Result := 'AlcMuteが起動中です。旧Portable版を含むAlcMuteをトレイメニューから終了して、再試行してください。'
+    Result := CustomMessage('CloseRunning')
   else if Code <> 0 then
-    Result := 'AlcMuteの起動状態を確認できませんでした。ほかのAlcMuteを終了して再試行してください。';
+    Result := CustomMessage('CheckRetry');
 end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 var Path: String;
@@ -113,7 +136,7 @@ begin
     Path := Lowercase(AddBackslash(ExpandFileName(WizardDirValue)));
     { Constrain to the current user's LocalAppData tree; never elevate for updates. }
     if Pos(Lowercase(AddBackslash(ExpandConstant('{localappdata}'))), Path) <> 1 then begin
-      MsgBox('管理者権限なしで更新するため、ユーザーのLocalAppData配下を選択してください。', mbError, MB_OK);
+      MsgBox(CustomMessage('UserDirectory'), mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -125,11 +148,11 @@ begin
     RefreshShortcutIcons;
     { [Run] entries execute BEFORE ssPostInstall. Start the app only after migration. }
     if not Exec(ExpandConstant('{app}\alcmute.exe'), '--install-migrate', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
-      RaiseException('自動起動の移行に失敗しました。既存の登録を確認し、AlcMuteのログを参照してください。');
+      RaiseException(CustomMessage('MigrationFailed'));
     { Silent updates are restarted by the update helper after verification. }
     if not WizardSilent then
       if not Exec(ExpandConstant('{app}\alcmute.exe'), '--background', '', SW_HIDE, ewNoWait, Code) then
-        MsgBox('インストールは完了しましたが、AlcMuteを起動できませんでした。スタートメニューから起動してください。', mbError, MB_OK);
+        MsgBox(CustomMessage('LaunchFailed'), mbError, MB_OK);
   end;
 end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -137,7 +160,7 @@ var Dir: String; Code: Integer;
 begin
   if CurUninstallStep = usUninstall then
     if not Exec(ExpandConstant('{app}\alcmute.exe'), '--uninstall-cleanup', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
-      RaiseException('自動起動を解除できませんでした。AlcMuteを終了して再試行してください。');
+      RaiseException(CustomMessage('CleanupFailed'));
   if CurUninstallStep = usPostUninstall then
     if RegQueryStringValue(HKCU, 'Software\Alcnaka\AlcMute', 'InstallDir', Dir) and
       (CompareText(RemoveBackslashUnlessRoot(Dir), RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) = 0) then

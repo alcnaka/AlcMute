@@ -34,7 +34,7 @@ def normalized(text):
 
 def main():
     pages = list(SITE.rglob("*.html"))
-    assert len(pages) >= 6, "Astro pages have not been built"
+    assert len(pages) >= 12, "Both guide languages must be built"
     parsed = {}
     for path in pages:
         page = Page()
@@ -58,13 +58,23 @@ def main():
             assert target.is_file(), f"Missing local target: {path} -> {link}"
             if url.fragment and target.suffix == '.html':
                 assert unquote(url.fragment) in parsed[target.resolve()].ids, f"Missing anchor: {link}"
-    pdf = ROOT / "output/pdf/AlcMute-Manual.pdf"
+    for english in [False, True]:
+        verify_pdf(english)
+    for locale in ["", "en/"]:
+        index = (SITE / locale / "index.html").read_text(encoding="utf-8")
+        assert 'AlcMute-Manual' in index, "Introduction must link to the PDF"
+        assert '<html lang="' + ('en' if locale else 'ja') + '"' in index
+    print(f"Verified local links and anchors across {len(pages)} pages in Japanese and English")
+
+
+def verify_pdf(english):
+    pdf = ROOT / "output/pdf" / ("AlcMute-Manual-en.pdf" if english else "AlcMute-Manual.pdf")
     assert pdf.read_bytes() == (SITE / pdf.name).read_bytes(), "Web PDF differs"
     reader = PdfReader(pdf)
     assert len(reader.pages) >= 2
     extracted = normalized("".join(p.extract_text() for p in reader.pages))
     parser = MarkdownIt("commonmark", {"html": False}).enable("table")
-    tokens = parser.parse((ROOT / "docs/user-guide.md").read_text(encoding="utf-8"))
+    tokens = parser.parse((ROOT / "docs" / ("user-guide.en.md" if english else "user-guide.md")).read_text(encoding="utf-8"))
     body = False
     checked = 0
     for token in tokens:

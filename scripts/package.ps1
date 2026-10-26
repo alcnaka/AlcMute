@@ -17,8 +17,8 @@ try {
     }
     $stage = Join-Path $PWD 'dist/portable'
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
-    Copy-Item -LiteralPath 'dist/build/portable/alcmute.exe','README.md','CHANGELOG.md' -Destination $stage -Force
-    Compress-Archive -LiteralPath "$stage/alcmute.exe","$stage/README.md","$stage/CHANGELOG.md" -DestinationPath "dist/AlcMute-$version-Portable.zip" -Force
+    Copy-Item -LiteralPath 'dist/build/portable/alcmute.exe','README.md','README.en.md','CHANGELOG.md' -Destination $stage -Force
+    Compress-Archive -LiteralPath "$stage/alcmute.exe","$stage/README.md","$stage/README.en.md","$stage/CHANGELOG.md" -DestinationPath "dist/AlcMute-$version-Portable.zip" -Force
     $buildDir = Join-Path $PWD 'dist/build/installer'
     & $Iscc "/DAppVersion=$version" "/DBuildDir=$buildDir" 'installer/AlcMute.iss'
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
@@ -27,7 +27,7 @@ try {
     if ($setupInfo.CompanyName.TrimEnd() -cne 'Alcnaka' -or $setupInfo.ProductName.TrimEnd() -cne 'AlcMute' -or $setupInfo.ProductVersion.TrimEnd() -cne $version) {throw 'Setup product/version mismatch'}
     $archive=[IO.Compression.ZipFile]::OpenRead((Join-Path $PWD "dist/AlcMute-$version-Portable.zip"))
     try {
-        if (($archive.Entries.FullName | Sort-Object) -join ',' -cne 'alcmute.exe,CHANGELOG.md,README.md') {throw 'Unexpected portable ZIP contents'}
+        if (($archive.Entries.FullName | Sort-Object) -join ',' -cne 'alcmute.exe,CHANGELOG.md,README.en.md,README.md') {throw 'Unexpected portable ZIP contents'}
         $entry=$archive.GetEntry('alcmute.exe').Open()
         $algorithm=[Security.Cryptography.SHA256]::Create()
         try {$archiveHash=[BitConverter]::ToString($algorithm.ComputeHash($entry)).Replace('-','')} finally {$entry.Dispose();$algorithm.Dispose()}

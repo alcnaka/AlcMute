@@ -2,9 +2,9 @@ name: Documentation
 on:
   workflow_dispatch:
   push:
-    paths: ['docs/user-guide.md', 'docs/screenshots/**', 'scripts/docs/**', 'website/**', 'assets/app.png', 'Cargo.toml', '.github/workflows/docs.yml']
+    paths: ['docs/user-guide*.md', 'docs/screenshots/**', 'scripts/docs/**', 'website/**', 'assets/app.png', 'Cargo.toml', '.github/workflows/docs.yml']
   pull_request:
-    paths: ['docs/user-guide.md', 'docs/screenshots/**', 'scripts/docs/**', 'website/**', 'assets/app.png', 'Cargo.toml', '.github/workflows/docs.yml']
+    paths: ['docs/user-guide*.md', 'docs/screenshots/**', 'scripts/docs/**', 'website/**', 'assets/app.png', 'Cargo.toml', '.github/workflows/docs.yml']
 permissions:
   contents: read
 jobs:

@@ -80,13 +80,13 @@ def inline(children):
     return "".join(result)
 
 
-def build_pdf(tokens, headings, output, version, font_path, bold_path):
+def build_pdf(tokens, headings, output, version, font_path, bold_path, english=False):
     # Embed a local TrueType Japanese font; no PDF reader/system-font dependency.
     pdfmetrics.registerFont(TTFont("Guide", str(font_path), subfontIndex=0))
     pdfmetrics.registerFont(TTFont("GuideBold", str(bold_path), subfontIndex=0))
     pdfmetrics.registerFontFamily("Guide", normal="Guide", bold="GuideBold", italic="Guide", boldItalic="GuideBold")
     body = ParagraphStyle("body", fontName="Guide", fontSize=10.5, leading=17,
-                          wordWrap="CJK", textColor=colors.HexColor("#243747"), spaceAfter=6)
+                          wordWrap=None if english else "CJK", textColor=colors.HexColor("#243747"), spaceAfter=6)
     styles = {1: ParagraphStyle("title", parent=body, fontName="GuideBold", fontSize=27, leading=38, spaceAfter=24),
               2: ParagraphStyle("section", parent=body, fontName="GuideBold", fontSize=18, leading=27, textColor=colors.HexColor("#126b85"), spaceBefore=18, spaceAfter=13, keepWithNext=True),
               3: ParagraphStyle("subsection", parent=body, fontName="GuideBold", fontSize=12, leading=20, spaceBefore=12, spaceAfter=8, keepWithNext=True)}
@@ -94,11 +94,11 @@ def build_pdf(tokens, headings, output, version, font_path, bold_path):
     logo = Image(str(ROOT / "assets/app.png"), 90, 90)
     logo.hAlign = "LEFT"
     story = [logo, Spacer(1, 22),
-             Paragraph("AlcMute", styles[1]), Paragraph("あるみゅーと / VRC Background Mute", body),
-             Paragraph("ご利用マニュアル", styles[2]),
+             Paragraph("AlcMute", styles[1]), Paragraph("VRC Background Mute" if english else "あるみゅーと / VRC Background Mute", body),
+             Paragraph("User Manual" if english else "ご利用マニュアル", styles[2]),
              Paragraph("Windows 10 / 11", body),
-             Spacer(1, 20), Paragraph("VRChatを操作していないときも、ショートカットや通知領域からマイクのミュートを切り替えられます。", body),
-             Spacer(1, 24), Paragraph("目次", styles[3])]
+             Spacer(1, 20), Paragraph("Toggle your microphone using a shortcut or the system tray, even while another app is active." if english else "VRChatを操作していないときも、ショートカットや通知領域からマイクのミュートを切り替えられます。", body),
+             Spacer(1, 24), Paragraph("Contents" if english else "目次", styles[3])]
     for anchor, title in headings:
         story.append(Paragraph(f'<a href="#{anchor}" color="#126b85">{html.escape(title)}</a>', body))
     story.append(PageBreak())
@@ -187,11 +187,11 @@ def build_pdf(tokens, headings, output, version, font_path, bold_path):
         i += 1
 
     def decorate(canvas, doc):
-        canvas.setTitle("AlcMute ご利用マニュアル")
+        canvas.setTitle("AlcMute User Manual" if english else "AlcMute ご利用マニュアル")
         canvas.setAuthor("Alcnaka")
         canvas.setFont("Guide", 8)
         canvas.setFillColor(colors.HexColor("#587080"))
-        canvas.drawString(60, 30, "AlcMute ご利用マニュアル | Alcnaka")
+        canvas.drawString(60, 30, "AlcMute User Manual | Alcnaka" if english else "AlcMute ご利用マニュアル | Alcnaka")
         canvas.drawRightString(A4[0] - 60, 30, str(doc.page))
         canvas.setStrokeColor(colors.HexColor("#d3e2e9"))
         canvas.line(60, 45, A4[0] - 60, 45)
@@ -201,10 +201,12 @@ def build_pdf(tokens, headings, output, version, font_path, bold_path):
 
 
 
-def prepare_website(text, pdf):
+def prepare_website(text, pdf, english=False):
     """Generate only the public guide; development documents are never scanned."""
     site = ROOT / "website"
     content = site / "src/content/docs"
+    if english:
+        content /= "en"
     public = site / "public"
     for directory in [content, public / "images", site / "src/assets"]:
         directory.mkdir(parents=True, exist_ok=True)
@@ -218,13 +220,14 @@ def prepare_website(text, pdf):
     sections = re.split(r"^## (.+)$", text, flags=re.MULTILINE)
     intro = re.sub(r"^# .+\n", "", sections[0]).strip()
     (content / "index.md").write_text(
-        '---\ntitle: はじめに\n---\n\n' + intro
-        + '\n\n[最新版をダウンロード](https://github.com/alcnaka/AlcMute/releases/latest)\n'
-        + '\n## PDFで読む\n\n'
-        + f'[PDFマニュアルをダウンロード]({base}/AlcMute-Manual.pdf)\n',
+        ('---\ntitle: Introduction\n---\n\n' if english else '---\ntitle: はじめに\n---\n\n') + intro
+        + ('\n\n[Download the latest release](https://github.com/alcnaka/AlcMute/releases/latest)\n\n## Read as PDF\n\n' if english else '\n\n[最新版をダウンロード](https://github.com/alcnaka/AlcMute/releases/latest)\n\n## PDFで読む\n\n')
+        + f'[{"Download the PDF manual" if english else "PDFマニュアルをダウンロード"}]({base}/{pdf.name})\n',
         encoding="utf-8",
     )
     names = {"インストールと更新": "install", "基本操作": "usage", "設定を変更する": "settings", "アップデート": "updates", "困ったとき": "troubleshooting"}
+    if english:
+        names = dict(zip(["Installation and updates", "Basic operation", "Changing settings", "Updates", "Troubleshooting"], names.values()))
     def image(match):
         path = source_image(match[2])
         shutil.copy2(path, public / "images" / path.name)
@@ -245,14 +248,19 @@ def main():
         parser.error("Japanese TrueType fonts required; pass --font and --bold-font <path to TTF/TTC>")
     version = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
     markdown = MarkdownIt("commonmark", {"html": False}).enable("table")
-    tokens, headings = prepare_tokens(markdown, SOURCE.read_text(encoding="utf-8"))
     site = args.output / "site"
     pdf_dir = args.output / "pdf"
     for folder in [site / "assets", pdf_dir]:
         folder.mkdir(parents=True, exist_ok=True)
-    build_pdf(tokens, headings, pdf_dir / "AlcMute-Manual.pdf", version, args.font, args.bold_font)
-    prepare_website(SOURCE.read_text(encoding="utf-8"), pdf_dir / "AlcMute-Manual.pdf")
-    print(f"PDF: {pdf_dir / 'AlcMute-Manual.pdf'}\nAstro content prepared. Run: pnpm --dir website build")
+    for english in [False, True]:
+        source = SOURCE.with_name("user-guide.en.md") if english else SOURCE
+        text = source.read_text(encoding="utf-8")
+        tokens, headings = prepare_tokens(markdown, text)
+        pdf = pdf_dir / ("AlcMute-Manual-en.pdf" if english else "AlcMute-Manual.pdf")
+        build_pdf(tokens, headings, pdf, version, args.font, args.bold_font, english)
+        prepare_website(text, pdf, english)
+        print(f"PDF: {pdf}")
+    print("Astro content prepared. Run: pnpm --dir website build")
 
 
 if __name__ == "__main__":
