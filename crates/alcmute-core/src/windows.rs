@@ -124,8 +124,14 @@ fn current_user_id() -> Result<String> {
 
 pub fn show_error(title: &str, message: &str) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
-    let title: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
-    let message: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
+    let title: Vec<u16> = crate::language::text(title)
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let message: Vec<u16> = crate::language::text(message)
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -139,8 +145,14 @@ pub fn confirm(title: &str, message: &str) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_YESNO,
     };
-    let title: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
-    let message: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
+    let title: Vec<u16> = crate::language::text(title)
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let message: Vec<u16> = crate::language::text(message)
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -611,8 +623,11 @@ pub fn confirm_tool_exit() -> bool {
     if !foreground_is_ours() {
         return false;
     }
-    let title: Vec<u16> = "ツールを終了\0".encode_utf16().collect();
-    let message: Vec<u16> = "AlcMuteを終了しますか？\n\n終了すると、ショートカットやトレイからのミュート操作は利用できなくなります。\n未保存の設定変更は保存されません。\0".encode_utf16().collect();
+    let title: Vec<u16> = crate::language::text("ツールを終了")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let message: Vec<u16> = crate::language::text("AlcMuteを終了しますか？\n\n終了すると、ショートカットやトレイからのミュート操作は利用できなくなります。\n未保存の設定変更は保存されません。").encode_utf16().chain(Some(0)).collect();
     unsafe {
         MessageBoxW(
             GetForegroundWindow(),
@@ -631,8 +646,11 @@ pub fn confirm_settings_reset() -> bool {
     if !foreground_is_ours() {
         return false;
     }
-    let title: Vec<u16> = "すべての設定を初期化\0".encode_utf16().collect();
-    let message: Vec<u16> = "保存した設定を削除し、すべての項目を初期値に戻します。\nWindowsサインイン時の自動起動も無効になります。\n\n初期化しますか？\0".encode_utf16().collect();
+    let title: Vec<u16> = crate::language::text("すべての設定を初期化")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let message: Vec<u16> = crate::language::text("保存した設定を削除し、すべての項目を初期値に戻します。\nWindowsサインイン時の自動起動も無効になります。\n\n初期化しますか？").encode_utf16().chain(Some(0)).collect();
     unsafe {
         MessageBoxW(
             GetForegroundWindow(),

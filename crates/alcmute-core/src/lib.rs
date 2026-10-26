@@ -1,5 +1,6 @@
 pub mod appearance;
 mod apply_error;
+pub mod language;
 mod migration;
 pub use apply_error::{ApplyError, ApplyErrorKind};
 pub mod settings_store;
@@ -42,6 +43,8 @@ pub struct Config {
     pub auto_check_updates: bool,
     #[serde(skip_serializing_if = "default_theme")]
     pub theme: appearance::Theme,
+    #[serde(skip_serializing_if = "language::Language::is_auto")]
+    pub language: language::Language,
 }
 fn default_theme(value: &appearance::Theme) -> bool {
     *value == appearance::Theme::Auto
@@ -72,6 +75,7 @@ impl Default for Config {
             show_settings_on_startup: true,
             auto_check_updates: true,
             theme: appearance::Theme::Auto,
+            language: language::Language::Auto,
         }
     }
 }

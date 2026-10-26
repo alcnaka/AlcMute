@@ -1,0 +1,7 @@
+export global I18n {
+    in-out property <bool> english;
+    pure callback translate(string) -> string;
+    public pure function tr(value: string) -> string {
+        return self.english ? self.translate(value) : value;
+    }
+}

@@ -5,8 +5,10 @@ slint::slint! {
     import { VerticalBox, HorizontalBox, Button, TextEdit, ComboBox } from "std-widgets.slint";
     import { AppTheme } from "theme.slint";
     export { AppTheme }
+    import { I18n } from "i18n.slint";
+    export { I18n }
     export component About inherits Window {
-        title: "AlcMuteについて";
+        title: I18n.tr("AlcMuteについて");
         icon: @image-url("../assets/app.png");
         background: AppTheme.background;
         preferred-width: 640px; preferred-height: 640px;
@@ -28,13 +30,13 @@ slint::slint! {
         VerticalBox {
             padding: 20px; spacing: 12px;
             Text { text: "AlcMute " + root.version; font-size: 26px; font-weight: 700; }
-            Text { text: "あるみゅーと / VRC Background Mute"; }
-            Text { text: "制作者：Alcnaka"; }
-            Button { text: "github.com/alcnaka/AlcMute を開く"; clicked => { root.repository(); } }
-            Text { text: "ライセンス：MIT（AlcMuteの独自コード）"; wrap: word-wrap; }
+            Text { text: I18n.tr("あるみゅーと / VRC Background Mute"); }
+            Text { text: I18n.tr("制作者：Alcnaka"); }
+            Button { text: I18n.tr("github.com/alcnaka/AlcMute を開く"); clicked => { root.repository(); } }
+            Text { text: I18n.tr("ライセンス：MIT（AlcMuteの独自コード）"); wrap: word-wrap; }
             HorizontalBox {
-                Button { text: "MITライセンス本文"; primary: !root.show-dependencies; clicked => { root.show-dependencies = false; } }
-                Button { text: "依存ライブラリのライセンス"; primary: root.show-dependencies; clicked => { root.show-dependencies = true; } }
+                Button { text: I18n.tr("MITライセンス本文"); primary: !root.show-dependencies; clicked => { root.show-dependencies = false; } }
+                Button { text: I18n.tr("依存ライブラリのライセンス"); primary: root.show-dependencies; clicked => { root.show-dependencies = true; } }
             }
             if root.show-dependencies: ComboBox {
                 model: root.libraries;
@@ -48,14 +50,14 @@ slint::slint! {
                 vertical-stretch: 1;
             }
             if root.show-dependencies: HorizontalBox {
-                Button { text: "前のページ"; enabled: root.page-index > 0; clicked => { root.turn-page(-1); } }
+                Button { text: I18n.tr("前のページ"); enabled: root.page-index > 0; clicked => { root.turn-page(-1); } }
                 Text { text: (root.page-index + 1) + " / " + root.page-count; vertical-alignment: center; horizontal-alignment: center; }
-                Button { text: "次のページ"; enabled: root.page-index + 1 < root.page-count; clicked => { root.turn-page(1); } }
+                Button { text: I18n.tr("次のページ"); enabled: root.page-index + 1 < root.page-count; clicked => { root.turn-page(1); } }
             }
-            if root.error-message != "": Text { text: root.error-message; color: AppTheme.error; wrap: word-wrap; }
+            if root.error-message != "": Text { text: I18n.tr(root.error-message); color: AppTheme.error; wrap: word-wrap; }
             HorizontalBox {
                 alignment: end;
-                Button { text: "閉じる"; clicked => { root.dismiss(); } }
+                Button { text: I18n.tr("閉じる"); clicked => { root.dismiss(); } }
             }
         }
     }
@@ -64,6 +66,7 @@ slint::slint! {
 pub fn show(slot: &Rc<RefCell<Option<About>>>) -> Result<(), String> {
     if slot.borrow().is_none() {
         let ui = About::new().map_err(|e| e.to_string())?;
+        crate::i18n::attach_about(&ui);
         crate::install_shortcut_input(ui.window());
         ui.set_version(
             format!(

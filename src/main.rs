@@ -3,6 +3,7 @@ use alcmute_core::{Config, Connection, Controller, Event, Options};
 use slint::winit_030::WinitWindowAccessor;
 use slint::ComponentHandle;
 mod about;
+mod i18n;
 mod shortcut;
 mod theme;
 mod update_install;
@@ -12,12 +13,14 @@ slint::slint! {
     import { VerticalBox, HorizontalBox, LineEdit, Button, CheckBox, ScrollView, ComboBox } from "std-widgets.slint";
     import { AppTheme } from "theme.slint";
     export { AppTheme }
+    import { I18n } from "i18n.slint";
+    export { I18n }
     component ResetButton inherits FocusScope {
         in property <string> setting-name;
         enabled: true;
         callback clicked();
         accessible-role: button;
-        accessible-label: root.setting-name + "をデフォルトに戻す";
+        accessible-label: root.setting-name + I18n.tr("をデフォルトに戻す");
         focus-on-tab-navigation: root.enabled;
         width: 18px; height: 18px;
         vertical-stretch: 0;
@@ -153,13 +156,16 @@ slint::slint! {
         in property <bool> saved-auto-check-updates;
         in-out property <int> theme-index;
         in property <int> saved-theme-index;
+        in-out property <int> language-index;
+        in property <int> saved-language-index;
         out property <bool> dirty: root.target != root.saved-target
             || root.listen != root.saved-listen || root.shortcut != root.saved-shortcut
             || root.autostart != root.saved-autostart
             || root.show-settings-on-startup != root.saved-show-settings-on-startup
             || root.tray-double-click-action != root.saved-tray-double-click-action
             || root.auto-check-updates != root.saved-auto-check-updates
-            || root.theme-index != root.saved-theme-index;
+            || root.theme-index != root.saved-theme-index
+            || root.language-index != root.saved-language-index;
         in property <string> config-path;
         in property <bool> can-toggle;
         in property <bool> save-ok;
@@ -210,10 +216,10 @@ slint::slint! {
                 VerticalBox {
                     padding: 24px; spacing: 12px; vertical-stretch: 0;
                     Text { text: "AlcMute"; font-size: 26px; font-weight: 700; vertical-stretch: 0; }
-                    Hint { text: "あるみゅーと / VRC Background Mute　" + root.app-version; }
+                    Hint { text: I18n.tr("あるみゅーと / VRC Background Mute　") + root.app-version; }
                     HorizontalBox {
-                        Text { text: root.state; font-size: 16px; wrap: word-wrap; }
-                        Button { text: "ミュート切り替え"; enabled: root.can-toggle && !root.capturing; clicked => {root.toggle();} }
+                        Text { text: I18n.tr(root.state); font-size: 16px; wrap: word-wrap; }
+                        Button { text: I18n.tr("ミュート切り替え"); enabled: root.can-toggle && !root.capturing; clicked => {root.toggle();} }
                     }
                 }
                 scroll-frame := Rectangle {
@@ -231,118 +237,130 @@ slint::slint! {
                         horizontal-scrollbar-policy: always-off;
                         VerticalBox {
                             padding: 24px; spacing: 12px; alignment: start;
-                            SectionTitle { text: "操作"; }
+                            SectionTitle { text: I18n.tr("操作"); }
                             HorizontalBox {
-                                FieldLabel { text: "ミュート切り替えのショートカット"; horizontal-stretch: 0; }
-                                ResetButton { setting-name: "ショートカット"; enabled: !root.capturing; clicked => {root.reset-field(2);} }
+                                FieldLabel { text: I18n.tr("ミュート切り替えのショートカット"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("ショートカット"); enabled: !root.capturing; clicked => {root.reset-field(2);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             CheckBox {
-                                text: "修飾キーの左右を区別する";
+                                text: I18n.tr("修飾キーの左右を区別する");
                                 checked <=> root.distinguish-modifier-sides;
                                 enabled: !root.capturing;
                             }
-                            Hint { text: "次のキー記録に適用します。登録済みのキーは変わりません。"; }
+                            Hint { text: I18n.tr("次のキー記録に適用します。登録済みのキーは変わりません。"); }
                             Button {
-                                text: root.capturing ? "記録をキャンセル（Esc）" : root.shortcut-label + "　 キーを変更";
+                                text: root.capturing ? I18n.tr("記録をキャンセル（Esc）") : root.shortcut-label + I18n.tr("　 キーを変更");
                                 clicked => {
                                     if root.capturing {root.cancel-capture();}
                                     else {root.begin-capture(); if root.capturing {key-scope.focus();}}
                                 }
                             }
-                            Hint { text: root.capturing ? root.capture-hint : "K＋Lなど通常キー同士も登録できます。すべてのキーを離すと確定します。"; }
+                            Hint { text: root.capturing ? I18n.tr(root.capture-hint) : I18n.tr("K＋Lなど通常キー同士も登録できます。すべてのキーを離すと確定します。"); }
                             HorizontalBox {
-                                FieldLabel { text: "トレイアイコンのダブルクリック"; horizontal-stretch: 0; }
-                                ResetButton { setting-name: "ダブルクリック動作"; enabled: !root.capturing; clicked => {root.reset-field(4);} }
+                                FieldLabel { text: I18n.tr("トレイアイコンのダブルクリック"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("ダブルクリック動作"); enabled: !root.capturing; clicked => {root.reset-field(4);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             toggle-choice := RadioChoice {
-                                text: "ミュート切り替え（デフォルト）";
+                                text: I18n.tr("ミュート切り替え（デフォルト）");
                                 checked: root.tray-double-click-action == 0;
                                 enabled: !root.capturing;
                                 selected => {root.tray-double-click-action = 0;}
                                 navigate => {root.tray-double-click-action = 1; settings-choice.focus();}
                             }
                             settings-choice := RadioChoice {
-                                text: "設定ウィンドウを開く";
+                                text: I18n.tr("設定ウィンドウを開く");
                                 checked: root.tray-double-click-action == 1;
                                 enabled: !root.capturing;
                                 selected => {root.tray-double-click-action = 1;}
                                 navigate => {root.tray-double-click-action = 0; toggle-choice.focus();}
                             }
                             Rectangle { height: 16px; }
-                            SectionTitle { text: "起動"; }
+                            SectionTitle { text: I18n.tr("起動"); }
                             HorizontalBox {
-                                FieldLabel { text: "Windowsサインイン時"; horizontal-stretch: 0; }
-                                ResetButton { setting-name: "自動起動"; enabled: !root.capturing && root.autostart-available; clicked => {root.reset-field(3);} }
+                                FieldLabel { text: I18n.tr("Windowsサインイン時"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("自動起動"); enabled: !root.capturing && root.autostart-available; clicked => {root.reset-field(3);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
-                            CheckBox { text: "Windowsサインイン時に起動"; checked <=> root.autostart; enabled: !root.capturing && root.autostart-available; }
-                            if !root.autostart-available: Hint { text: "インストーラー版でのみ利用できます。"; }
+                            CheckBox { text: I18n.tr("Windowsサインイン時に起動"); checked <=> root.autostart; enabled: !root.capturing && root.autostart-available; }
+                            if !root.autostart-available: Hint { text: I18n.tr("インストーラー版でのみ利用できます。"); }
                             HorizontalBox {
-                                FieldLabel { text: "起動時の画面"; horizontal-stretch: 0; }
-                                ResetButton { setting-name: "起動時の表示"; enabled: !root.capturing; clicked => {root.reset-field(5);} }
+                                FieldLabel { text: I18n.tr("起動時の画面"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("起動時の表示"); enabled: !root.capturing; clicked => {root.reset-field(5);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
-                            CheckBox { text: "手動起動時に設定ウィンドウを表示する"; checked <=> root.show-settings-on-startup; enabled: !root.capturing; }
-                            Hint { text: "Windowsサインイン時と更新後は画面を表示せず常駐します。"; }
+                            CheckBox { text: I18n.tr("手動起動時に設定ウィンドウを表示する"); checked <=> root.show-settings-on-startup; enabled: !root.capturing; }
+                            Hint { text: I18n.tr("Windowsサインイン時と更新後は画面を表示せず常駐します。"); }
                             Rectangle { height: 16px; }
-                            SectionTitle { text: "OSC接続"; }
-                            Hint { text: "VRChatと通信するアドレスです。通常は初期値のままで使用できます。"; }
+                            SectionTitle { text: I18n.tr("OSC接続"); }
+                            Hint { text: I18n.tr("VRChatと通信するアドレスです。通常は初期値のままで使用できます。"); }
                             HorizontalBox {
-                                FieldLabel { text: "送信先（IPアドレス：ポート）"; horizontal-stretch: 0; }
-                                ResetButton { setting-name: "OSC送信先"; enabled: !root.capturing; clicked => {root.reset-field(0);} }
+                                FieldLabel { text: I18n.tr("送信先（IPアドレス：ポート）"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("OSC送信先"); enabled: !root.capturing; clicked => {root.reset-field(0);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             LineEdit { text <=> root.target; enabled: !root.capturing; }
                             HorizontalBox {
-                                FieldLabel { text: "受信先（IPアドレス：ポート）"; horizontal-stretch: 0; }
-                                ResetButton { setting-name: "OSC受信先"; enabled: !root.capturing; clicked => {root.reset-field(1);} }
+                                FieldLabel { text: I18n.tr("受信先（IPアドレス：ポート）"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("OSC受信先"); enabled: !root.capturing; clicked => {root.reset-field(1);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             LineEdit { text <=> root.listen; enabled: !root.capturing; }
                             Rectangle { height: 16px; }
-                            SectionTitle { text: "外観"; }
+                            SectionTitle { text: I18n.tr("外観"); }
                             HorizontalBox {
-                                FieldLabel { text: "テーマ"; horizontal-stretch: 0; }
-                                ResetButton { setting-name: "テーマ"; enabled: !root.capturing; clicked => {root.reset-field(7);} }
+                                FieldLabel { text: I18n.tr("言語"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("言語"); enabled: !root.capturing; clicked => {root.reset-field(8);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             ComboBox {
-                                model: ["自動（Windowsの設定に合わせる）", "ライト", "ダーク"];
+                                model: [I18n.tr("自動（Windowsの言語）"), "日本語", "English"];
+                                current-index <=> root.language-index;
+                                enabled: !root.capturing;
+                            }
+                            Hint { text: I18n.tr("保存すると表示言語を切り替えます。"); }
+
+                            HorizontalBox {
+                                FieldLabel { text: I18n.tr("テーマ"); horizontal-stretch: 0; }
+                                ResetButton { setting-name: I18n.tr("テーマ"); enabled: !root.capturing; clicked => {root.reset-field(7);} }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            ComboBox {
+                                model: [I18n.tr("自動（Windowsの設定に合わせる）"), I18n.tr("ライト"), I18n.tr("ダーク")];
                                 current-index <=> root.theme-index;
                                 enabled: !root.capturing;
                                 selected => {root.preview-theme(self.current-index);}
                             }
-                            Hint { text: "選択するとプレビューします。「保存」で確定します。"; }
+                            Hint { text: I18n.tr("選択するとプレビューします。「保存」で確定します。"); }
                             Rectangle { height: 16px; }
-                            update-heading := SectionTitle { text: "アップデート"; }
+                            update-heading := SectionTitle { text: I18n.tr("アップデート"); }
                             HorizontalBox {
-                                CheckBox { horizontal-stretch: 0; text: "起動時にアップデートを確認"; checked <=> root.auto-check-updates; enabled: !root.capturing; }
-                                ResetButton { setting-name: "更新確認"; enabled: !root.capturing; clicked => {root.reset-field(6);} }
+                                CheckBox { horizontal-stretch: 0; text: I18n.tr("起動時にアップデートを確認"); checked <=> root.auto-check-updates; enabled: !root.capturing; }
+                                ResetButton { setting-name: I18n.tr("更新確認"); enabled: !root.capturing; clicked => {root.reset-field(6);} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
-                            Button { text: "アップデートを確認"; enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
-                            if root.update-status != "": Hint { text: root.update-status; }
-                            Hint { text: root.update-last-checked == "" ? "最終確認：未確認" : "最終確認：" + root.update-last-checked; }
-                            if root.update-available && root.update-installable: Button { text: "ダウンロードして更新"; enabled: !root.update-busy && !root.capturing; clicked => {root.install-update();} }
+                            Button { text: I18n.tr("アップデートを確認"); enabled: !root.update-busy && !root.capturing; clicked => {root.check-updates();} }
+                            if root.update-status != "": Hint { text: I18n.tr(root.update-status); }
+                            Hint { text: root.update-last-checked == "" ? I18n.tr("最終確認：未確認") : I18n.tr("最終確認：") + root.update-last-checked; }
+                            if root.update-available && root.update-installable: Button { text: I18n.tr("ダウンロードして更新"); enabled: !root.update-busy && !root.capturing; clicked => {root.install-update();} }
                             Rectangle { height: 16px; }
-                            SectionTitle { text: "アプリ情報"; }
+                            SectionTitle { text: I18n.tr("アプリ情報"); }
                             HorizontalBox {
-                                Button { text: "AlcMuteについて"; enabled: !root.capturing; clicked => {root.about();} }
+                                Button { text: I18n.tr("AlcMuteについて"); enabled: !root.capturing; clicked => {root.about();} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
-                            TextAction { text: "GitHub Releasesを開く"; enabled: !root.capturing; clicked => {root.release-page();} }
+                            TextAction { text: I18n.tr("GitHub Releasesを開く"); enabled: !root.capturing; clicked => {root.release-page();} }
                             Rectangle { height: 16px; }
-                            SectionTitle { text: "設定データ"; }
-                            FieldLabel { text: "設定ファイルの保存先"; }
+                            SectionTitle { text: I18n.tr("設定データ"); }
+                            FieldLabel { text: I18n.tr("設定ファイルの保存先"); }
                             Hint { text: root.config-path; }
                             Rectangle { height: 8px; }
                             HorizontalBox {
-                                Button { text: "すべての設定を初期化"; enabled: !root.capturing; clicked => {root.reset-all();} }
+                                Button { text: I18n.tr("すべての設定を初期化"); enabled: !root.capturing; clicked => {root.reset-all();} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
-                            Hint { text: "確認後に保存済み設定を削除し、自動起動も無効にします。"; }
+                            Hint { text: I18n.tr("確認後に保存済み設定を削除し、自動起動も無効にします。"); }
                         }
                     }
                     Rectangle {
@@ -363,13 +381,13 @@ slint::slint! {
                 }
                 VerticalBox {
                     padding: 24px; padding-top: 16px; spacing: 8px; vertical-stretch: 0;
-                    if root.dirty: Text { text: "保存されていない設定があります"; color: AppTheme.warning; font-size: 15px; wrap: word-wrap; }
-                    if root.message != "": Text { text: root.message; wrap: word-wrap; color: root.save-ok ? AppTheme.success : AppTheme.error; font-size: 14px; }
+                    if root.dirty: Text { text: I18n.tr("保存されていない設定があります"); color: AppTheme.warning; font-size: 15px; wrap: word-wrap; }
+                    if root.message != "": Text { text: I18n.tr(root.message); wrap: word-wrap; color: root.save-ok ? AppTheme.success : AppTheme.error; font-size: 14px; }
                     HorizontalBox {
-                        OutlineAction { text: "アプリを終了…"; clicked => {root.cancel-capture(); root.quit-confirmed();} }
+                        OutlineAction { text: I18n.tr("アプリを終了…"); clicked => {root.cancel-capture(); root.quit-confirmed();} }
                         Rectangle { horizontal-stretch: 1; }
-                        Button { text: "保存"; min-width: 100px; enabled: root.dirty && !root.capturing; primary: root.dirty && !root.capturing; clicked => {root.save(root.target, root.listen, root.shortcut, root.autostart);} }
-                        Button { text: "閉じる"; min-width: 100px; clicked => {root.cancel-capture(); root.dismiss();} }
+                        Button { text: I18n.tr("保存"); min-width: 100px; enabled: root.dirty && !root.capturing; primary: root.dirty && !root.capturing; clicked => {root.save(root.target, root.listen, root.shortcut, root.autostart);} }
+                        Button { text: I18n.tr("閉じる"); min-width: 100px; clicked => {root.cancel-capture(); root.dismiss();} }
                     }
                 }
             }
@@ -383,8 +401,8 @@ slint::slint! {
             TouchArea { }
             VerticalBox {
                 padding: 20px; spacing: 12px;
-                Text { text: "AlcMuteは起動済みです"; color: AppTheme.foreground; font-size: 17px; font-weight: 700; }
-                Text { text: "既存のAlcMuteの設定画面を表示しました。"; color: AppTheme.foreground; font-size: 15px; wrap: word-wrap; }
+                Text { text: I18n.tr("AlcMuteは起動済みです"); color: AppTheme.foreground; font-size: 17px; font-weight: 700; }
+                Text { text: I18n.tr("既存のAlcMuteの設定画面を表示しました。"); color: AppTheme.foreground; font-size: 15px; wrap: word-wrap; }
                 HorizontalBox {
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: "OK"; clicked => {root.existing-instance-notice = false;} }
@@ -398,20 +416,21 @@ slint::slint! {
         in property <int> mute-state;
         in property <bool> can-toggle;
         icon: root.mute-state == 1 ? @image-url("../assets/mic-muted.svg") : root.mute-state == 2 ? @image-url("../assets/mic-unmuted.svg") : @image-url("../assets/mic-unknown.svg");
-        tooltip: root.status-text + (root.update-available ? " / 更新があります" : "");
+        tooltip: I18n.tr(root.status-text) + (root.update-available ? I18n.tr(" / 更新があります") : "");
         callback toggle(); callback settings(); callback about(); callback exit-requested(); callback updates();
         callback icon-clicked();
         clicked => { root.icon-clicked(); }
         Menu {
-            MenuItem { title: "ミュート切り替え"; enabled: root.can-toggle; activated => { root.toggle(); } }
-            MenuItem { title: "設定"; activated => { root.settings(); } }
-            MenuItem { title: root.update-available ? "更新があります" : "アップデートを確認"; activated => {root.updates();} }
-            MenuItem { title: "AlcMuteについて"; activated => { root.about(); } }
-            MenuItem { title: "終了"; activated => { root.exit-requested(); } }
+            MenuItem { title: I18n.tr("ミュート切り替え"); enabled: root.can-toggle; activated => { root.toggle(); } }
+            MenuItem { title: I18n.tr("設定"); activated => { root.settings(); } }
+            MenuItem { title: root.update-available ? I18n.tr("更新があります") : I18n.tr("アップデートを確認"); activated => {root.updates();} }
+            MenuItem { title: I18n.tr("AlcMuteについて"); activated => { root.about(); } }
+            MenuItem { title: I18n.tr("終了"); activated => { root.exit-requested(); } }
         }
     }
 }
 fn main() -> std::process::ExitCode {
+    alcmute_core::language::set(alcmute_core::language::Language::Auto);
     let args: Vec<String> = std::env::args().skip(1).collect();
     // Installer preflight: no settings, OSC, startup registry, or UI initialization.
     if args.as_slice() == ["--check-install-ready"] {
@@ -449,6 +468,8 @@ fn main() -> std::process::ExitCode {
         }
     };
     options.install_panic_log();
+    // Read only: selecting an error-dialog language must not run migrations.
+    alcmute_core::language::set(alcmute_core::language::load(&options.data_dir));
     let background = std::env::args().any(|arg| arg == "--background");
     let maintenance = if std::env::args().any(|arg| arg == "--install-migrate") {
         Some(true)
@@ -527,7 +548,9 @@ fn report_error(options: &Options, title: &str, error: &str) {
     alcmute_core::windows::show_error(title, &format!("{error}\n\n{log}\n\n設定ファイル・OSC受信ポート・ショートカットを確認して、再起動してください。"));
 }
 fn run(options: Options) -> Result<(), String> {
+    i18n::apply(alcmute_core::language::load(&options.data_dir));
     let tray = Tray::new().map_err(|e| e.to_string())?;
+    i18n::attach_tray(&tray);
     // Lazy creation avoids paying for settings controls until the first use.
     let settings: Rc<RefCell<Option<Settings>>> = Rc::new(RefCell::new(None));
     let updates = updates::Updates::new(options.clone(), tray.as_weak());
@@ -566,6 +589,7 @@ fn run(options: Options) -> Result<(), String> {
                     }
                 };
                 install_editing(&ui, controller.clone(), options.clone());
+                i18n::attach_settings(&ui);
                 updates.attach(&ui);
                 appearance.attach(&ui);
                 ui.set_autostart_available(alcmute_core::windows::startup_available(&options));
@@ -590,12 +614,17 @@ fn run(options: Options) -> Result<(), String> {
                                 autostart,
                                 show_settings_on_startup: ui.get_show_settings_on_startup(),
                                 tray_double_click_settings: ui.get_tray_double_click_action() == 1,
+                                language: alcmute_core::language::Language::from_index(
+                                    ui.get_language_index(),
+                                )
+                                .unwrap_or_default(),
                                 ..Config::default()
                             },
                             ui.get_auto_check_updates(),
                             ui.get_theme_index(),
                         );
                         if result.is_ok() {
+                            i18n::apply(core.config.language);
                             fill_config(&ui, &core.config);
                         }
                         ui.set_save_ok(result.is_ok());
@@ -951,6 +980,8 @@ fn fill_config(ui: &Settings, config: &Config) {
 }
 
 fn set_saved_config(ui: &Settings, config: &Config) {
+    ui.set_language_index(config.language.index());
+    ui.set_saved_language_index(config.language.index());
     ui.set_saved_target(config.target.clone().into());
     ui.set_saved_listen(config.listen.clone().into());
     ui.set_saved_shortcut(config.shortcut.clone().into());
@@ -1156,6 +1187,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
                 3 => ui.set_autostart(false),
                 4 => ui.set_tray_double_click_action(0),
                 5 => ui.set_show_settings_on_startup(true),
+                8 => ui.set_language_index(0),
                 6 => ui.set_auto_check_updates(true),
                 7 => {
                     ui.set_theme_index(0);
@@ -1182,6 +1214,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
             match result {
                 Ok(()) => {
                     fill_config(&ui, &Config::default());
+                    i18n::apply(alcmute_core::language::Language::Auto);
                     if ui.invoke_update_preferences(true) && ui.invoke_reset_theme() {
                         ui.set_message("保存済み設定を削除し、自動起動を解除しました".into());
                     }
@@ -1209,6 +1242,38 @@ mod double_click_tests {
         let ui = Settings::new().unwrap();
         let original = Config::default();
         fill_config(&ui, &original);
+        assert!(!ui.get_dirty());
+        i18n::attach_settings(&ui);
+        for language in [
+            alcmute_core::language::Language::Japanese,
+            alcmute_core::language::Language::English,
+        ] {
+            ui.set_language_index(language.index());
+            assert!(ui.get_dirty());
+            assert_eq!(
+                ui.global::<I18n>().get_english(),
+                alcmute_core::language::english(),
+                "editing must not switch the language before saving"
+            );
+            i18n::apply(language);
+            let saved = Config {
+                language,
+                ..original.clone()
+            };
+            set_saved_config(&ui, &saved);
+            assert!(!ui.get_dirty());
+            assert_eq!(
+                ui.global::<I18n>().invoke_tr("保存".into()),
+                if language == alcmute_core::language::Language::English {
+                    "Save"
+                } else {
+                    "保存"
+                }
+            );
+        }
+        fill_config(&ui, &original);
+        i18n::apply(alcmute_core::language::Language::Auto);
+        assert_eq!(ui.get_language_index(), 0);
         assert!(!ui.get_dirty());
         assert!(ui.get_distinguish_modifier_sides());
         for value in ["LeftCtrl+RightCtrl", "Ctrl+Alt+KeyM"] {
