@@ -21,7 +21,6 @@ export default defineConfig({
       { label: '設定', slug: 'settings' },
       { label: 'アップデート', slug: 'updates' },
       { label: '困ったとき', slug: 'troubleshooting' },
-      { label: 'PDFマニュアル', link: `${base.replace(/\/$/, '')}/AlcMute-Manual.pdf` },
     ],
     lastUpdated: false,
     credits: false,

@@ -217,7 +217,13 @@ def prepare_website(text, pdf):
     base = os.environ.get("DOCS_BASE_PATH", "/").rstrip("/")
     sections = re.split(r"^## (.+)$", text, flags=re.MULTILINE)
     intro = re.sub(r"^# .+\n", "", sections[0]).strip()
-    (content / "index.md").write_text('---\ntitle: はじめに\n---\n\n' + intro + '\n\n[最新版をダウンロード](https://github.com/alcnaka/AlcMute/releases/latest)\n', encoding="utf-8")
+    (content / "index.md").write_text(
+        '---\ntitle: はじめに\n---\n\n' + intro
+        + '\n\n[最新版をダウンロード](https://github.com/alcnaka/AlcMute/releases/latest)\n'
+        + '\n## PDFで読む\n\n'
+        + f'[PDFマニュアルをダウンロード]({base}/AlcMute-Manual.pdf)\n',
+        encoding="utf-8",
+    )
     names = {"インストールと更新": "install", "基本操作": "usage", "設定を変更する": "settings", "アップデート": "updates", "困ったとき": "troubleshooting"}
     def image(match):
         path = source_image(match[2])
