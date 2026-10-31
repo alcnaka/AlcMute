@@ -36,6 +36,8 @@ pub fn key_name_to_vk(name: &str) -> Option<u16> {
         }
     }
     Some(match name {
+        "Mouse4" => 5,
+        "Mouse5" => 6,
         "Backspace" => 8,
         "Tab" => 9,
         "Enter" => 13,
@@ -207,7 +209,7 @@ impl Chord {
                 .all(|key| self.keys[key / 64] & (1u64 << (key % 64)) == 0 || down[key]);
         }
         // A modifier-only chord is not triggered by releasing a typed base key.
-        !(8..=226).any(|k| down[k] && !matches!(k,0x10..=0x12|0x5b..=0x5c|0xa0..=0xa5))
+        !(5..=226).any(|k| down[k] && !matches!(k,0x10..=0x12|0x5b..=0x5c|0xa0..=0xa5))
     }
 }
 
@@ -417,7 +419,7 @@ impl HookState {
         let mut pressed = [false; 256];
         pressed.copy_from_slice(&self.down);
         if self.capture && down && !repeated {
-            let keys: Vec<u16> = (8u16..=226).filter(|k| pressed[*k as usize]).collect();
+            let keys: Vec<u16> = (5u16..=226).filter(|k| pressed[*k as usize]).collect();
             let modifiers = keys
                 .iter()
                 .filter(|k| matches!(**k, 0x5b..=0x5c | 0xa0..=0xa5))
@@ -499,6 +501,20 @@ impl Hook {
                     let _ = tx.send(Err(std::io::Error::last_os_error().to_string()));
                     return;
                 }
+                // Share the keyboard worker and message loop. Mouse movement is
+                // ignored; no extra polling or resident thread is introduced.
+                let mouse = SetWindowsHookExW(
+                    WH_MOUSE_LL,
+                    Some(mouse_hook),
+                    windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(std::ptr::null()),
+                    0,
+                );
+                if mouse.is_null() {
+                    let error = std::io::Error::last_os_error().to_string();
+                    UnhookWindowsHookEx(hook);
+                    let _ = tx.send(Err(error));
+                    return;
+                }
                 let id = windows_sys::Win32::System::Threading::GetCurrentThreadId();
                 let _ = tx.send(Ok(id));
                 while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
@@ -506,6 +522,7 @@ impl Hook {
                     DispatchMessageW(&msg);
                 }
                 UnhookWindowsHookEx(hook);
+                UnhookWindowsHookEx(mouse);
             })
             .map_err(|e| e.to_string())?;
         match rx.recv().map_err(|e| e.to_string())? {
@@ -584,9 +601,90 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize)
     CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
 }
 
+#[cfg(feature = "windows-integration")]
+fn mouse_input(message: u32, data: u32) -> Option<(usize, bool)> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_XBUTTONDOWN, WM_XBUTTONUP};
+    let down = match message {
+        WM_XBUTTONDOWN => true,
+        WM_XBUTTONUP => false,
+        _ => return None,
+    };
+    let vk = match data >> 16 {
+        1 => 5, // XBUTTON1 / VK_XBUTTON1
+        2 => 6, // XBUTTON2 / VK_XBUTTON2
+        _ => return None,
+    };
+    Some((vk, down))
+}
+
+#[cfg(feature = "windows-integration")]
+unsafe extern "system" fn mouse_hook(code: i32, wparam: usize, lparam: isize) -> isize {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    if code == HC_ACTION as i32 && matches!(wparam as u32, WM_XBUTTONDOWN | WM_XBUTTONUP) {
+        let event = &*(lparam as *const MSLLHOOKSTRUCT);
+        if let Some((vk, down)) = mouse_input(wparam as u32, event.mouseData) {
+            process_key_event(vk, down, event.time, InputSource::Hook);
+        }
+    }
+    // Observe only: preserve the normal button action and other applications' hooks.
+    CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mouse_chords_parse_without_changing_saved_keyboard_chords() {
+        for text in [
+            "Mouse4",
+            "Mouse5",
+            "Ctrl+Mouse4",
+            "RightAlt+Mouse5",
+            "Mouse4+KeyK",
+            "Mouse4+Mouse5",
+            "Ctrl+Alt+KeyM",
+        ] {
+            assert!(text.parse::<HotKey>().is_ok(), "{text}");
+        }
+        for text in ["Mouse1", "Mouse6", "Mouse4+Mouse4"] {
+            assert!(text.parse::<HotKey>().is_err(), "{text}");
+        }
+    }
+    #[cfg(feature = "windows-integration")]
+    #[test]
+    fn side_buttons_fire_once_rearm_and_pause_during_recording() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::*;
+        assert_eq!(mouse_input(WM_XBUTTONDOWN, 1 << 16), Some((5, true)));
+        assert_eq!(mouse_input(WM_XBUTTONUP, 2 << 16), Some((6, false)));
+        assert_eq!(mouse_input(WM_MOUSEMOVE, 1 << 16), None);
+        assert_eq!(mouse_input(WM_XBUTTONDOWN, 3 << 16), None);
+        for (text, button, modifier) in [("Mouse4", 5, None), ("RightCtrl+Mouse5", 6, Some(0xa3))] {
+            let key = text.parse().unwrap();
+            let mut state = HookState {
+                keys: vec![(key, false)],
+                down: vec![false; 256],
+                ..Default::default()
+            };
+            if let Some(vk) = modifier {
+                assert!(state.key_event(vk, true).is_empty());
+            }
+            assert_eq!(state.key_event(button, true), vec![key]);
+            assert!(state.key_event(button, true).is_empty());
+            assert!(state.key_event(button, false).is_empty());
+            assert_eq!(state.key_event(button, true), vec![key]);
+            state.key_event(button, false);
+            state.capture = true;
+            assert!(state.key_event(button, true).is_empty());
+            let recorded = state.recorded.take().unwrap();
+            assert!(recorded.contains(&(button as u16)));
+            if let Some(vk) = modifier {
+                assert!(recorded.contains(&(vk as u16)));
+            }
+            state.key_event(button, false);
+            state.capture = false;
+            assert_eq!(state.key_event(button, true), vec![key]);
+        }
+    }
     #[cfg(feature = "windows-integration")]
     #[test]
     fn foreground_modifier_chord_works_with_already_updated_async_state() {

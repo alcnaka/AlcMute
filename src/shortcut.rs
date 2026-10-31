@@ -20,6 +20,8 @@ pub fn from_keys(keys: &[u16], distinguish_sides: bool) -> Result<Option<String>
             0x60..=0x69 => format!("Numpad{}", key - 0x60),
             0x70..=0x87 => format!("F{}", key - 0x6f),
             _ => match key {
+                5 => "Mouse4",
+                6 => "Mouse5",
                 0x08 => "Backspace",
                 0x09 => "Tab",
                 0x0d => "Enter",
@@ -135,6 +137,24 @@ pub fn label(shortcut: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn records_side_buttons_alone_and_with_keyboard_keys() {
+        for (keys, expected) in [
+            (vec![5], "Mouse4"),
+            (vec![6], "Mouse5"),
+            (vec![0xa3, 5], "RightCtrl+Mouse4"),
+            (vec![6, 0x4b], "Mouse5+KeyK"),
+            (vec![5, 6], "Mouse4+Mouse5"),
+        ] {
+            assert_eq!(from_keys(&keys, true).unwrap().as_deref(), Some(expected));
+        }
+        assert_eq!(
+            from_keys(&[0xa3, 6], false).unwrap().as_deref(),
+            Some("Ctrl+Mouse5")
+        );
+        assert_eq!(label("RightCtrl+Mouse4"), "Right Ctrl + Mouse4");
+        assert!(from_keys(&[1], true).is_err());
+    }
     #[test]
     fn recording_mode_only_changes_the_new_chord() {
         let keys = [0xa3, 0xa4, 0x4d];

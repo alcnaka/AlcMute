@@ -256,7 +256,7 @@ slint::slint! {
                                     else {root.begin-capture(); if root.capturing {key-scope.focus();}}
                                 }
                             }
-                            Hint { text: root.capturing ? I18n.tr(root.capture-hint) : I18n.tr("K＋Lなど通常キー同士も登録できます。すべてのキーを離すと確定します。"); }
+                            Hint { text: root.capturing ? I18n.tr(root.capture-hint) : I18n.tr("K＋Lなど通常キー同士や、マウスのサイドボタン（Mouse4／Mouse5）も登録できます。すべて離すと確定します。"); }
                             HorizontalBox {
                                 FieldLabel { text: I18n.tr("トレイアイコンのダブルクリック"); horizontal-stretch: 0; }
                                 ResetButton { setting-name: I18n.tr("ダブルクリック動作"); enabled: !root.capturing; clicked => {root.reset-field(4);} }
@@ -1048,7 +1048,7 @@ fn install_editing(ui: &Settings, controller: Rc<RefCell<Option<Controller>>>, o
                         ..Default::default()
                     };
                     ui.set_capture_hint(
-                        "登録するキーの組み合わせを押してください（Escでキャンセル）".into(),
+                        "登録するキーやサイドボタンを押してください（Escでキャンセル）".into(),
                     );
                     ui.set_capturing(true);
                     ui.set_message("".into());

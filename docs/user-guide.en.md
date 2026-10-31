@@ -42,6 +42,8 @@ To distinguish left and right Ctrl, Alt, and other modifier keys, enable Disting
 
 Shortcuts work while Settings is open. They pause only during key recording. If another app responds to the same keys, choose a different combination.
 
+You can also record the two standard mouse side buttons as Mouse4 or Mouse5, alone or combined with keys such as Ctrl. Their normal actions in other apps, such as Back and Forward, are not blocked. If your mouse software remaps a button to a keyboard key, AlcMute may recognize that key instead.
+
 ![Settings example in Japanese. The shortcut shown is an example](screenshots/v0.3.0/08-settings-dark-connected.jpg)
 
 ## Changing settings

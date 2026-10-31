@@ -588,7 +588,8 @@ pub fn any_keyboard_key_down() -> bool {
 pub fn pressed_keyboard_keys() -> Vec<u16> {
     // 0xF0..0xFE are Japanese IME mode keys, not held physical keys. Some
     // layouts report these continuously, preventing any release wait finishing.
-    (8u16..=0xE2)
+    // Include XBUTTON1/2 (5/6), but never record the primary UI mouse buttons.
+    (5u16..=0xE2)
         .filter(|key| unsafe {
             windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(*key as i32) < 0
         })
