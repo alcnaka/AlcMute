@@ -137,6 +137,6 @@
   "ツールを終了": "Exit AlcMute",
   "AlcMuteを終了しますか？\n\n終了すると、ショートカットやトレイからのミュート操作は利用できなくなります。\n未保存の設定変更は保存されません。": "Exit AlcMute?\n\nMute controls from shortcuts and the tray will stop.\nUnsaved settings will be discarded.",
   "保存した設定を削除し、すべての項目を初期値に戻します。\nWindowsサインイン時の自動起動も無効になります。\n\n初期化しますか？": "Delete saved settings and restore all defaults?\nWindows sign-in auto-start will also be disabled.\n\nReset settings?",
-  "K＋Lなど通常キー同士や、マウスのサイドボタン（Mouse4／Mouse5）も登録できます。すべて離すと確定します。": "Record plain key combinations such as K + L or mouse side buttons (Mouse4/Mouse5). Release all buttons and keys to finish.",
+  "K＋Lなど通常キー同士や、マウスのサイドボタンも登録できます。すべて離すと確定します。": "Record plain key combinations such as K + L or mouse side buttons. Release all buttons and keys to finish.",
   "登録するキーやサイドボタンを押してください（Escでキャンセル）": "Press keys or mouse side buttons to record (Esc to cancel)"
 }
