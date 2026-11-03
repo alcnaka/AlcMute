@@ -12,7 +12,7 @@ A Windows 10 / 11 tray app using VRChat's official OSC support.
 
 For most users, choose the Installer edition.
 
-**Security warnings and blocks**: The current downloads are not code-signed. SmartScreen, Smart App Control, or antivirus software may restrict installation or startup. See [what to check when a security warning appears](docs/user-guide.en.md#blocked-by-security-software).
+**A warning appears when downloading or starting AlcMute?** Follow the [steps for your warning](docs/user-guide.en.md#blocked-by-security-software), including how to keep the download in Edge and what to check when startup is blocked.
 
 | | Installer | Portable |
 | --- | --- | --- |

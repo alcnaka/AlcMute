@@ -72,21 +72,34 @@ For the Portable edition, download the new ZIP, exit AlcMute, then replace the E
 
 ### Blocked by security software
 
-The current app and installer are not code-signed. If you see a warning or block, check that the file came from the [official GitHub Releases](https://github.com/alcnaka/AlcMute/releases), then note the full message and affected filename. A missing signature alone does not prove that a file is safe or malicious.
+First, check that you downloaded the file from the [official GitHub Releases](https://github.com/alcnaka/AlcMute/releases). Then follow the steps for the message you see.
 
-- **SmartScreen**: Checks downloaded apps against reputation and other information. Files without an established reputation may trigger a warning. This is separate from Smart App Control. [Microsoft's explanation](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/)
-- **Smart App Control (Windows 11)**: May block an app when it cannot establish safety and no valid signature is available. There is no per-app allow option. Blocking the current installer's startup-check EXE can produce the message that AlcMute's running state could not be checked. The Portable edition may also be blocked. [Microsoft FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions)
-- **Defender and other antivirus software**: Check protection history or quarantine records for the detection name, affected file, and time. Do not assume it is a false positive; [report these details to the developer](https://github.com/alcnaka/AlcMute/issues).
+#### Edge says the file is not commonly downloaded
 
-Disabling protection or adding broad exclusions is not part of the normal installation instructions. Contact your administrator on a managed PC. Conditions for re-enabling protection depend on Windows updates, so also read the explanation shown on your device.
+If you have checked the source and want to continue downloading:
 
-For a detailed installer log, open PowerShell in the download folder and run the following, replacing the Setup filename with the one you downloaded. The log is saved to your desktop.
+1. Open Downloads at the top right of Edge, or press Ctrl + J.
+2. Hover over the file, open its three-dot menu, and select Keep.
+3. When Edge asks you to make sure you trust the file, open the arrow next to Delete at the bottom right and select Keep anyway.
+4. Once the download finishes, open the saved Setup.exe.
 
-```powershell
-.\AlcMute-0.3.2-Setup.exe /LOG="$env:USERPROFILE\Desktop\AlcMute-setup.log"
-```
+Some versions of Edge show Show more followed by Keep anyway in step 3. These steps apply to the uncommon-download warning. If the message says a virus was detected, follow the antivirus instructions below instead.
 
-Before sharing a log, check for usernames and personal folder paths, and redact them as needed.
+#### Windows says it protected your PC when you start the file
+
+If you have checked the source and want to continue, select More info, then Run anyway. If Run anyway is unavailable, or your work or school manages the PC, stop and ask your administrator.
+
+#### Smart App Control blocks the file
+
+The Keep anyway and Run anyway steps above cannot clear this block. Note the full warning and affected filename, then [contact the developer](https://github.com/alcnaka/AlcMute/issues). If Setup says it cannot check whether AlcMute is running, also check Windows notifications or protection history for a block. Switching to the Portable edition may not resolve it.
+
+Smart App Control has no per-app allow option. Leave protection enabled and pause installation if you cannot proceed. [Microsoft FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions)
+
+#### Antivirus software detects or quarantines the file
+
+Open Windows Security > Virus & threat protection > Protection history, or the history in your antivirus app. Send the detection name, affected filename, and time to the developer. Leave the file quarantined and do not add an exclusion while it is being investigated.
+
+The current downloads are not code-signed, so the publisher may appear as Unknown. If you are unsure how to proceed, contact the developer with the warning message.
 
 ### Mute does not toggle
 
@@ -96,7 +109,13 @@ A gray question mark means AlcMute cannot read the mute state. It does not mean 
 
 ### An update fails
 
-Exit AlcMute and run the [latest Setup.exe](https://github.com/alcnaka/AlcMute/releases/latest) manually. Your settings are kept. This also works around os error 31 when updating from v0.3.0 or v0.3.1.
+**Updating from v0.3.0 or v0.3.1 requires a manual installation. Thank you for your patience.**
+
+1. Choose Exit from the tray menu to quit AlcMute.
+2. Download the [latest Setup.exe](https://github.com/alcnaka/AlcMute/releases/latest).
+3. Run Setup.exe and follow the installation instructions. Your existing settings are kept.
+
+If an update fails on another version, you can use the same steps to install manually.
 
 ### AlcMute will not start or save settings
 
