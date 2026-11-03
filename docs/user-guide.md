@@ -70,6 +70,24 @@ Portable版は、新しいZIPをダウンロードし、AlcMuteを終了して�
 
 ## 困ったとき
 
+### セキュリティ機能でブロックされる
+
+現在の配布EXEとインストーラーはコード署名をしていません。警告やブロックが表示された場合は、[公式GitHub Releases](https://github.com/alcnaka/AlcMute/releases)から取得したファイルか確認し、警告の全文と対象ファイル名を確認してください。署名がないことだけで安全・危険を断定することはできません。
+
+- **SmartScreen**：ダウンロードしたアプリの評判などを確認し、十分な評判がないファイルに警告する場合があります。スマートアプリコントロールとは別の機能です。[Microsoftの説明](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/)
+- **スマートアプリコントロール（Windows 11）**：安全性を判断できず、有効な署名もないアプリはブロックされる場合があります。アプリ単位の許可設定はありません。現行インストーラーの起動確認用EXEが実行できず、「AlcMuteの起動状態を確認できませんでした」となる事例もあります。Portable版もブロックされる可能性があります。[MicrosoftのFAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions)
+- **Defender・その他のウイルス対策ソフト**：保護の履歴や隔離の記録で、検出名・対象ファイル・日時を確認してください。誤検出と決めつけず、これらの情報を添えて[開発者へ報告](https://github.com/alcnaka/AlcMute/issues)してください。
+
+保護機能の無効化や広範囲の除外設定は、通常の導入手順として案内していません。管理対象のPCでは管理者に確認してください。再有効化の条件はWindowsの更新状況によって異なるため、画面の説明も確認してください。
+
+インストーラーの詳細ログが必要な場合は、ダウンロード先でPowerShellを開き、実際のSetupファイル名に置き換えて実行してください。ログはデスクトップに保存されます。
+
+```powershell
+.\AlcMute-0.3.2-Setup.exe /LOG="$env:USERPROFILE\Desktop\AlcMute-setup.log"
+```
+
+ログを共有する前に、ユーザー名や個人用フォルダーのパスなどを確認し、必要に応じて伏せてください。
+
 ### ミュートを切り替えられない
 
 VRChatのOSCとToggle Voiceが有効か確認してください。ショートカットだけが動かないときは、トレイメニューからの切り替えを試し、キーを変更して保存してください。

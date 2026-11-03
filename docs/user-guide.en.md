@@ -70,6 +70,24 @@ For the Portable edition, download the new ZIP, exit AlcMute, then replace the E
 
 ## Troubleshooting
 
+### Blocked by security software
+
+The current app and installer are not code-signed. If you see a warning or block, check that the file came from the [official GitHub Releases](https://github.com/alcnaka/AlcMute/releases), then note the full message and affected filename. A missing signature alone does not prove that a file is safe or malicious.
+
+- **SmartScreen**: Checks downloaded apps against reputation and other information. Files without an established reputation may trigger a warning. This is separate from Smart App Control. [Microsoft's explanation](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/)
+- **Smart App Control (Windows 11)**: May block an app when it cannot establish safety and no valid signature is available. There is no per-app allow option. Blocking the current installer's startup-check EXE can produce the message that AlcMute's running state could not be checked. The Portable edition may also be blocked. [Microsoft FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions)
+- **Defender and other antivirus software**: Check protection history or quarantine records for the detection name, affected file, and time. Do not assume it is a false positive; [report these details to the developer](https://github.com/alcnaka/AlcMute/issues).
+
+Disabling protection or adding broad exclusions is not part of the normal installation instructions. Contact your administrator on a managed PC. Conditions for re-enabling protection depend on Windows updates, so also read the explanation shown on your device.
+
+For a detailed installer log, open PowerShell in the download folder and run the following, replacing the Setup filename with the one you downloaded. The log is saved to your desktop.
+
+```powershell
+.\AlcMute-0.3.2-Setup.exe /LOG="$env:USERPROFILE\Desktop\AlcMute-setup.log"
+```
+
+Before sharing a log, check for usernames and personal folder paths, and redact them as needed.
+
 ### Mute does not toggle
 
 Check that OSC and Toggle Voice are enabled in VRChat. If only the shortcut fails, try toggling mute from the tray menu, then change the shortcut and save.
