@@ -8,6 +8,7 @@ from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
 from pypdf import PdfReader
+from typography import NO_START, NO_END
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "output/site"
@@ -72,19 +73,36 @@ def verify_pdf(english):
     assert pdf.read_bytes() == (SITE / pdf.name).read_bytes(), "Web PDF differs"
     reader = PdfReader(pdf)
     assert len(reader.pages) >= 2
+    if not english:
+        for page in reader.pages:
+            for line in page.extract_text(extraction_mode="layout").splitlines():
+                line = line.strip()
+                if line:
+                    assert line[0] not in NO_START, f"Prohibited line start: {line}"
+                    assert line[-1] not in NO_END, f"Prohibited line end: {line}"
     extracted = normalized("".join(p.extract_text() for p in reader.pages))
     parser = MarkdownIt("commonmark", {"html": False}).enable("table")
     tokens = parser.parse((ROOT / "docs" / ("user-guide.en.md" if english else "user-guide.md")).read_text(encoding="utf-8"))
     body = False
     checked = 0
+    expected_links = set()
     for token in tokens:
         if token.type == "heading_open" and token.tag == "h2":
             body = True
         if body and token.type == "inline":
+            expected_links.update(c.attrGet("href") for c in token.children or []
+                                  if c.type == "link_open" and c.attrGet("href").startswith("https://"))
             text = "".join(" " if c.type in ("softbreak", "hardbreak") else c.content
                            for c in token.children or [] if c.type in ("text", "code_inline", "softbreak", "hardbreak", "image"))
             assert normalized(text) in extracted, f"Missing PDF text: {text[:100]}"
             checked += 1
+    actual_links = set()
+    for page in reader.pages:
+        for annotation in page.get("/Annots", []):
+            action = annotation.get_object().get("/A")
+            if action and action.get("/URI"):
+                actual_links.add(str(action["/URI"]))
+    assert expected_links <= actual_links, f"Missing PDF links: {expected_links - actual_links}"
     for p in reader.pages:
         for font in p["/Resources"]["/Font"].values():
             descriptor = font.get_object().get("/FontDescriptor")

@@ -16,13 +16,23 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak,
+    SimpleDocTemplate, Spacer, Table, TableStyle, Image, PageBreak,
     KeepTogether, CondPageBreak,
 )
+from typography import Paragraph
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "docs/user-guide.md"
 REPOSITORY = "https://github.com/alcnaka/AlcMute"
+
+
+class BodyParagraph(Paragraph):
+    """Keep normal paragraphs intact without hiding them from keepWithNext."""
+    def split(self, availWidth, availHeight):
+        # An unusually long paragraph may still span full pages.
+        if self.height > A4[1] - 42 - 58:
+            return super().split(availWidth, availHeight)
+        return []
 
 
 def slug(text):
@@ -147,7 +157,9 @@ def build_pdf(tokens, headings, output, version, font_path, bold_path, english=F
                     if value is not None:
                         list_stack[-1] += 1
                 style = body if not bullet else ParagraphStyle("item", parent=body, leftIndent=18, firstLineIndent=0, bulletIndent=0)
-                story.append(KeepTogether([Paragraph(inline(content.children), style, bulletText=bullet)]))
+                # Let ReportLab keep a heading with its following paragraph.
+                # Nesting the paragraph in KeepTogether breaks that grouping.
+                story.append(BodyParagraph(inline(content.children), style, bulletText=bullet))
             i += 3
             continue
         elif t.type == "fence":
