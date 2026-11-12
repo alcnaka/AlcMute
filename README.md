@@ -2,6 +2,8 @@
 
 **日本語** | [English](README.en.md)
 
+[ドキュメント](https://alcnaka.github.io/AlcMute/)
+
 **VRC Background Mute — VRChatが非アクティブでも、ショートカットでマイクのミュートを切り替え。**
 
 Windows 10 / 11向けの常駐アプリです。VRChat公式OSCを使い、通知領域（システムトレイ）からの操作にも対応しています。

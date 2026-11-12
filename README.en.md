@@ -2,6 +2,8 @@
 
 [日本語](README.md) | **English**
 
+[Documentation](https://alcnaka.github.io/AlcMute/en/)
+
 **VRC Background Mute — toggle your VRChat microphone with a shortcut, even while another app is active.**
 
 A Windows 10 / 11 tray app using VRChat's official OSC support.

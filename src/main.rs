@@ -181,6 +181,7 @@ slint::slint! {
         callback check-updates();
         callback install-update();
         callback release-page();
+        callback documentation();
         callback update-preferences(bool) -> bool;
         callback preview-theme(int);
         callback reset-theme() -> bool;
@@ -350,6 +351,7 @@ slint::slint! {
                                 Button { text: I18n.tr("AlcMuteについて"); enabled: !root.capturing; clicked => {root.about();} }
                                 Rectangle { horizontal-stretch: 1; }
                             }
+                            TextAction { text: I18n.tr("ドキュメントを開く"); enabled: !root.capturing; clicked => {root.documentation();} }
                             TextAction { text: I18n.tr("GitHub Releasesを開く"); enabled: !root.capturing; clicked => {root.release-page();} }
                             Rectangle { height: 16px; }
                             SectionTitle { text: I18n.tr("設定データ"); }
@@ -595,6 +597,23 @@ fn run(options: Options) -> Result<(), String> {
                 ui.set_autostart_available(alcmute_core::windows::startup_available(&options));
                 let show_about = show_about.clone();
                 ui.on_about(move || show_about());
+                let weak = ui.as_weak();
+                ui.on_documentation(move || {
+                    let url = if alcmute_core::language::english() {
+                        "https://alcnaka.github.io/AlcMute/en/"
+                    } else {
+                        "https://alcnaka.github.io/AlcMute/"
+                    };
+                    if let Err(error) = std::process::Command::new("explorer.exe").arg(url).spawn()
+                    {
+                        if let Some(ui) = weak.upgrade() {
+                            ui.set_save_ok(false);
+                            ui.set_message(
+                                format!("ドキュメントを開けませんでした: {error}").into(),
+                            );
+                        }
+                    }
+                });
                 let weak = ui.as_weak();
                 let controller_save = controller.clone();
                 let updates_save = updates.clone();
