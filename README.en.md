@@ -33,7 +33,7 @@ Choose System, Japanese, or English under Language in Settings, then click Save.
 
 ## User guide
 
-- [Installation and updates](docs/user-guide.en.md#installation-and-updates)
+- [Installation](docs/user-guide.en.md#installation)
 - [Shortcuts and tray controls](docs/user-guide.en.md#basic-operation)
 - [Settings](docs/user-guide.en.md#changing-settings)
 - [Troubleshooting](docs/user-guide.en.md#troubleshooting)

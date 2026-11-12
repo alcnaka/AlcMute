@@ -2,7 +2,7 @@
 
 AlcMute is a Windows 10 / 11 app that lets you toggle your VRChat microphone using a shortcut or the system tray, even while another app is active.
 
-## Installation and updates
+## Installation
 
 [Download the latest release](https://github.com/alcnaka/AlcMute/releases/latest). For most users, the Installer edition (Setup.exe) is recommended.
 
@@ -22,9 +22,14 @@ To uninstall, use Windows Settings > Apps. Your saved settings are kept.
 
 ### Getting started
 
-1. Enable **OSC** and **Toggle Voice** in VRChat.
-2. Start AlcMute.
-3. Press **Ctrl + Alt + M** to toggle mute.
+Check these settings to connect to VRChat:
+
+1. **Enable OSC**: Open the VRChat Action Menu (press `R` on desktop), then turn on Options > OSC > Enabled.
+2. **Set the microphone to toggle mode**: In the VRChat Main Menu, open Settings > Audio & Voice > Microphone and set Microphone Behaviour to Toggle. This corresponds to the former Toggle Voice setting.
+3. **Start AlcMute**: The Installer edition is available in the Start menu.
+4. **Press `Ctrl + Alt + M`** to toggle the microphone mute.
+
+OSC carries messages between AlcMute and VRChat. Toggle changes the microphone's mute state each time it is activated.
 
 #### Tray icon legend
 
@@ -44,27 +49,45 @@ Closing Settings with Close or the X button leaves AlcMute running in the tray. 
 2. Press your key combination, then release all keys.
 3. Click Save. Press Esc to cancel recording.
 
-To distinguish left and right Ctrl, Alt, and other modifier keys, enable Distinguish left and right modifiers before recording. Changing this checkbox does not alter your existing shortcut. Modifier-only combinations and combinations such as K + L are also supported.
+#### Distinguish left and right modifiers
 
-Shortcuts work while Settings is open. They pause only during key recording. If another app responds to the same keys, choose a different combination.
+To register left Ctrl and right Ctrl as different keys, enable **Distinguish left and right modifiers before recording**.
 
-You can also record the two standard mouse side buttons as Mouse4 or Mouse5, alone or combined with keys such as Ctrl. Their normal actions in other apps, such as Back and Forward, are not blocked. If your mouse software remaps a button to a keyboard key, AlcMute may recognize that key instead.
+Changing this option **does not change the registered shortcut**. Record the shortcut again to apply the selection.
+
+#### Supported inputs
+
+- **Keyboard**: Combinations such as `Ctrl + Alt + M`, modifier-only combinations, and combinations such as `K + L`.
+- **Mouse**: Record the side buttons (`Mouse4` and `Mouse5`) alone or with keys such as Ctrl.
+
+Use Change keys to record mouse side buttons. Their actions in other apps, such as Back and Forward, are not blocked.
+
+If your mouse software remaps a button to a keyboard key, AlcMute may recognize that key instead.
 
 ![Settings example in Japanese. The shortcut shown is an example](screenshots/v0.3.0/08-settings-dark-connected.jpg)
 
 ## Changing settings
 
-Click Save after changing settings. Save is enabled only when there are unsaved changes.
+Click Save after changing settings. Save is enabled when there are unsaved changes.
 
-- **Tray double-click**: Toggle mute or open Settings.
-- **Start at Windows sign-in**: Available in the Installer edition.
-- **Show Settings when launched manually**: Turn this off to start in the tray.
-- **Theme**: Choose System, Light, or Dark. System follows your Windows setting.
-- **Language**: Choose System, Japanese, or English, then save. System uses Japanese on Japanese Windows and English on other Windows display languages.
+| Setting | Description |
+| --- | --- |
+| Tray double-click | Toggle mute or open Settings |
+| Start at Windows sign-in | Installer edition only |
+| Show Settings when launched manually | Turn off to start in the tray |
+| Theme | System, Light, or Dark |
+| Language | System, Japanese, or English |
 
-The circular arrow beside a setting restores its default value. Reset all settings asks for confirmation before deleting saved settings. It also disables sign-in startup for the Installer edition.
+The System theme follows Windows. The System language uses Japanese when the Windows display language is Japanese and English otherwise.
 
-You normally do not need to change the OSC addresses. The defaults are 127.0.0.1:9000 for sending and 127.0.0.1:9001 for receiving.
+### OSC addresses
+
+You normally do not need to change these defaults.
+
+| Direction | Address |
+| --- | --- |
+| AlcMute to VRChat (send) | `127.0.0.1:9000` |
+| VRChat to AlcMute (receive) | `127.0.0.1:9001` |
 
 ## Updates
 
@@ -78,9 +101,16 @@ For the Portable edition, download the new ZIP, exit AlcMute, then replace the E
 
 ### Blocked by security software
 
-First, check that you downloaded the file from the [official GitHub Releases](https://github.com/alcnaka/AlcMute/releases). Then follow the steps for the message you see.
+First, check that you downloaded the file from the [official GitHub Releases](https://github.com/alcnaka/AlcMute/releases). **The steps depend on the warning displayed.**
 
-#### Edge says the file is not commonly downloaded
+| Warning | See |
+| --- | --- |
+| The file is not commonly downloaded (Edge) | [Edge download warning](#edge-download-warning) |
+| Windows protected your PC | [Windows protection screen](#windows-protection-screen) |
+| Blocked by Smart App Control | [Smart App Control](#smart-app-control) |
+| A virus was detected | [Antivirus detection and quarantine](#antivirus-detection-and-quarantine) |
+
+#### Edge download warning
 
 If you have checked the source and want to continue downloading:
 
@@ -89,48 +119,54 @@ If you have checked the source and want to continue downloading:
 3. When Edge asks you to make sure you trust the file, open the arrow next to Delete at the bottom right and select Keep anyway.
 4. Once the download finishes, open the saved Setup.exe.
 
-Some versions of Edge show Show more followed by Keep anyway in step 3. These steps apply to the uncommon-download warning. If the message says a virus was detected, follow the antivirus instructions below instead.
+Some versions of Edge show Show more followed by Keep anyway in step 3. These steps apply to the uncommon-download warning. If the message says a virus was detected, see [Antivirus detection and quarantine](#antivirus-detection-and-quarantine).
 
-#### Windows says it protected your PC when you start the file
+#### Windows protection screen
 
 If you have checked the source and want to continue, select More info, then Run anyway. If Run anyway is unavailable, or your work or school manages the PC, stop and ask your administrator.
 
-#### Smart App Control blocks the file
+#### Smart App Control
 
-The Keep anyway and Run anyway steps above cannot clear this block. Note the full warning and affected filename, then [contact the developer](https://github.com/alcnaka/AlcMute/issues). If Setup says it cannot check whether AlcMute is running, also check Windows notifications or protection history for a block. Switching to the Portable edition may not resolve it.
+When Smart App Control is enabled, **AlcMute cannot be allowed individually**. See the [Microsoft FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
 
-Smart App Control has no per-app allow option. Leave protection enabled and pause installation if you cannot proceed. [Microsoft FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions)
-
-#### Antivirus software detects or quarantines the file
+#### Antivirus detection and quarantine
 
 Open Windows Security > Virus & threat protection > Protection history, or the history in your antivirus app. Send the detection name, affected filename, and time to the developer. Leave the file quarantined and do not add an exclusion while it is being investigated.
 
-The current downloads are not code-signed, so the publisher may appear as Unknown. If you are unsure how to proceed, contact the developer with the warning message.
-
 ### Mute does not toggle
 
-Check that OSC and Toggle Voice are enabled in VRChat. If only the shortcut fails, try toggling mute from the tray menu, then change the shortcut and save.
+Check the following in order:
 
-A gray question mark means AlcMute cannot read the mute state. It does not mean you are muted. Check the microphone state in VRChat too.
+1. **VRChat settings**: Check that OSC is enabled and Microphone Behaviour is set to Toggle. See [Getting started](#getting-started).
+2. **Tray controls**: Right-click the AlcMute tray icon and toggle mute from the menu.
+3. **Shortcut**: If the tray control works, change the shortcut and click Save.
+
+A gray question mark means **AlcMute cannot read the mute state**. It does not mean you are muted. Check the microphone state in VRChat too.
 
 ### An update fails
 
-**Updating from v0.3.0 or v0.3.1 requires a manual installation. Thank you for your patience.**
+If the in-app update fails, try the manual installation steps below.
+
+#### Updating from v0.3.0 or v0.3.1
+
+**Updating from either of these versions requires a manual installation.**
+
+#### Manual installation
 
 1. Choose Exit from the tray menu to quit AlcMute.
 2. Download the [latest Setup.exe](https://github.com/alcnaka/AlcMute/releases/latest).
 3. Run Setup.exe and follow the installation instructions. Your existing settings are kept.
 
-If an update fails on another version, you can use the same steps to install manually.
-
 ### AlcMute will not start or save settings
 
-Check the error message. If AlcMute offers to restore a damaged settings file, you can recover it from the backup.
+1. **Check the error**: Note the message shown on screen.
+2. **Check the recovery prompt**: If AlcMute offers to restore a damaged settings file, follow the prompt to recover it from the backup.
+3. **Ask for help**: Include your AlcMute version, what you did, and the error message in [GitHub Issues](https://github.com/alcnaka/AlcMute/issues).
 
-When asking for help, include your AlcMute version, what you did, and the error message. If a log is needed, error.log is in this folder:
+If a log is needed, `error.log` is located at:
 
 ```text
-%LOCALAPPDATA%\Alcnaka\AlcMute
+%LOCALAPPDATA%\Alcnaka\AlcMute\error.log
 ```
 
-This folder also contains your settings. You do not need to delete your settings file to ask for help.
+The same folder also contains your settings. You do not need to delete your settings file to ask for help.

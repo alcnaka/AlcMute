@@ -33,7 +33,7 @@ Windows 10 / 11向けの常駐アプリです。VRChat公式OSCを使い、通�
 
 ## 詳しい使い方
 
-- [インストール・更新](docs/user-guide.md#インストールと更新)
+- [インストール](docs/user-guide.md#インストール)
 - [ショートカット・設定・トレイ操作](docs/user-guide.md#基本操作)
 - [設定の変更](docs/user-guide.md#設定を変更する)
 - [困ったとき](docs/user-guide.md#困ったとき)

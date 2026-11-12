@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import tomllib
+from urllib.parse import unquote
 
 from markdown_it import MarkdownIt
 from reportlab.lib import colors
@@ -41,6 +42,8 @@ def slug(text):
 
 
 def link(href):
+    if href.startswith("#"):
+        return "#" + unquote(href[1:])
     if href == "../README.md":
         return REPOSITORY
     if href == "../CHANGELOG.md":
@@ -253,15 +256,21 @@ def prepare_website(text, pdf, english=False):
         + f'[{"Download the PDF manual" if english else "PDFマニュアルをダウンロード"}]({base}/{pdf.name})\n',
         encoding="utf-8",
     )
-    names = {"インストールと更新": "install", "基本操作": "usage", "設定を変更する": "settings", "アップデート": "updates", "困ったとき": "troubleshooting"}
+    names = {"インストール": "install", "基本操作": "usage", "設定を変更する": "settings", "アップデート": "updates", "困ったとき": "troubleshooting"}
     if english:
-        names = dict(zip(["Installation and updates", "Basic operation", "Changing settings", "Updates", "Troubleshooting"], names.values()))
+        names = dict(zip(["Installation", "Basic operation", "Changing settings", "Updates", "Troubleshooting"], names.values()))
     def image(match):
         path = source_image(match[2])
         shutil.copy2(path, public / "images" / path.name)
         return match[1] + base + '/images/' + path.name + match[3]
     for title, body in zip(sections[1::2], sections[2::2]):
         name = names[title]
+        # The guide is one Markdown document, but the web version has one page
+        # per section. Rewrite links to headings belonging to another page.
+        if name == "troubleshooting":
+            anchor = "getting-started" if english else "使い始める"
+            locale = "/en" if english else ""
+            body = body.replace(f"](#{anchor})", f"]({base}{locale}/usage/#{anchor})")
         body = re.sub(r'(!\[[^\]]*\]\()([^)]+)(\))', image, body)
         (content / (name + '.md')).write_text('---\ntitle: ' + json.dumps(title, ensure_ascii=False) + '\n---\n' + body, encoding="utf-8")
 
