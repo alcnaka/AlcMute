@@ -1,5 +1,6 @@
 markdown-it-py==3.0.0
 # The Japanese paragraph adapter uses ReportLab's 4.4 fragment layout API.
 reportlab>=4.4,<4.5
+svglib>=1.5,<1.6
 Pillow>=11,<13
 pypdf>=6,<7

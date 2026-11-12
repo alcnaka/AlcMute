@@ -26,7 +26,13 @@ To uninstall, use Windows Settings > Apps. Your saved settings are kept.
 2. Start AlcMute.
 3. Press **Ctrl + Alt + M** to toggle mute.
 
-The tray icon is **green when the microphone is active, red when muted, and gray with a question mark when the state is unknown**.
+#### Tray icon legend
+
+| Icon | VRChat microphone status |
+| --- | --- |
+| ![](../assets/mic-unmuted.svg) | **Green · Microphone active** |
+| ![](../assets/mic-muted.svg) | **Red · Muted** |
+| ![](../assets/mic-unknown.svg) | **Gray question mark · Unknown**. Check the status in VRChat. |
 
 Right-click the tray icon to toggle mute, open Settings, or exit. If the icon is hidden, check the tray overflow menu on the right side of the taskbar.
 

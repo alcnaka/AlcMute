@@ -20,6 +20,7 @@ from reportlab.platypus import (
     KeepTogether, CondPageBreak,
 )
 from typography import Paragraph
+from svglib.svglib import svg2rlg
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "docs/user-guide.md"
@@ -177,13 +178,28 @@ def build_pdf(tokens, headings, output, version, font_path, bold_path, english=F
                 if tokens[j].type == "tr_open":
                     row = []
                 elif tokens[j].type == "inline":
-                    row.append(Paragraph(inline(tokens[j].children), cell))
+                    children = tokens[j].children or []
+                    if len(children) == 1 and children[0].type == "image":
+                        path = source_image(children[0].attrGet("src"))
+                        if path.suffix.lower() == ".svg":
+                            icon = svg2rlg(str(path))
+                            scale = 24 / max(icon.width, icon.height)
+                            icon.scale(scale, scale)
+                            icon.width *= scale
+                            icon.height *= scale
+                            row.append(icon)
+                        else:
+                            row.append(Image(str(path), 24, 24, kind="proportional"))
+                    else:
+                        row.append(Paragraph(inline(children), cell))
                 elif tokens[j].type == "tr_close":
                     rows.append(row)
                 j += 1
             widths = {2: [235, 240], 3: [105, 185, 185], 4: [68, 155, 105, 147]}.get(
                 len(rows[0]), [475 / len(rows[0])] * len(rows[0])
             )
+            if len(rows[0]) == 2 and any(not isinstance(row[0], Paragraph) for row in rows[1:]):
+                widths = [64, 411]
             table = Table(rows, colWidths=widths, repeatRows=1, hAlign="LEFT")
             table.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dfedf2")),
