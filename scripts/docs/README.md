@@ -49,6 +49,7 @@ PDFは`AlcMute-Manual.pdf`（日本語）と`AlcMute-Manual-en.pdf`（英語）�
 
 ```powershell
 $env:DOCS_BASE_PATH = '/AlcMute/'
+$env:DOCS_SITE_URL = 'https://alcnaka.github.io'
 ./.venv-docs/Scripts/python.exe scripts/docs/build.py
 pnpm --dir website build
 ./.venv-docs/Scripts/python.exe scripts/docs/verify.py
@@ -58,7 +59,15 @@ pnpm --dir website build
 
 ## CIと公開
 
-`Documentation`ワークフローで生成・検証し、`alcmute-documentation`成果物を保存します。`output/site/`全体を静的ホスティングに配置できます。サイト公開やRelease添付は自動で行いません。
+GitHubのリポジトリ設定で「Settings → Pages → Build and deployment → Source」を「GitHub Actions」にします。
+
+`main`へのPushで`Documentation`ワークフローが実行されます。Windows上で日英のWeb・PDFを生成し、組版テストとリンク・本文・フォント検証が成功すると、`output/site/`をGitHub Pagesへ公開します。公開先は`https://alcnaka.github.io/AlcMute/`です。日本語PDFと英語PDFもサイトに含まれます。
+
+生成・検証ジョブはリポジトリの読み取り権限、公開ジョブは`pages: write`と`id-token: write`を使います。公開ジョブは`github-pages`環境を使用します。同じブランチで実行が重なった場合は、進行中の公開が完了してから次の実行へ進みます。
+
+Pull Requestでは対象ファイル変更時に生成・検証を行います。Actionsの「Run workflow」から手動実行もでき、`main`を選ぶと検証後に公開します。ほかのブランチを手動選択した場合は生成・検証を行います。
+
+`alcmute-documentation`成果物にWeb・PDFの出力を保存します。アプリのRelease公開は既存のWindowsワークフローで管理します。
 
 原稿は標準Markdown（見出し・段落・リスト・表・コード・強調・リンク・画像）に限定します。PDF未対応の記法はエラーにします。WebとPDFの内容を一致させるため、原稿へMDX専用コンポーネントを直接書かないでください。
 

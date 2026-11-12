@@ -3,6 +3,7 @@ import starlight from '@astrojs/starlight';
 
 const base = process.env.DOCS_BASE_PATH || '/';
 export default defineConfig({
+  site: process.env.DOCS_SITE_URL,
   base,
   outDir: '../output/site',
   trailingSlash: 'always',
